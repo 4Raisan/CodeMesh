@@ -2,6 +2,9 @@ export const SCHEMA_VERSION = 'codemesh/1';
 export const MAX_NODES = 10000;
 export const MAX_EDGES = 30000;
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+const MAX_SERIALIZED_METADATA = 2000;
+const UNSERIALIZABLE_METADATA = '[unserializable]';
+const TRUNCATED_METADATA = '[truncated]';
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -27,6 +30,69 @@ function normalizePath(value) {
   const text = boundedText(value, '', 600);
   if (!text) return '';
   return text.replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+function normalizeSource(value) {
+  if (typeof value === 'string') {
+    const path = normalizePath(value);
+    return path ? { path } : undefined;
+  }
+  if (!isRecord(value)) return undefined;
+  const path = normalizePath(value.path ?? value.file);
+  if (!path) return undefined;
+  const source = { path };
+  const startLine = positiveInteger(value.startLine ?? value.line);
+  const endLine = positiveInteger(value.endLine);
+  if (startLine !== undefined) source.startLine = startLine;
+  if (endLine !== undefined) source.endLine = endLine;
+  const revision = boundedText(value.revision, '', 160);
+  if (revision) source.revision = revision;
+  return source;
+}
+
+function normalizeEvidence(value) {
+  if (typeof value === 'string') return { extractor: boundedText(value, '', 160) };
+  if (!isRecord(value)) return undefined;
+  const evidence = {};
+  const path = normalizePath(value.path);
+  const range = boundedText(value.range, '', 160);
+  const extractor = boundedText(value.extractor ?? value.source, '', 160);
+  const revision = boundedText(value.revision, '', 160);
+  if (path) evidence.path = path;
+  if (range) evidence.range = range;
+  if (extractor) evidence.extractor = extractor;
+  if (revision) evidence.revision = revision;
+  const startLine = positiveInteger(value.startLine);
+  const endLine = positiveInteger(value.endLine);
+  if (startLine !== undefined) evidence.startLine = startLine;
+  if (endLine !== undefined) evidence.endLine = endLine;
+  return Object.keys(evidence).length > 0 ? evidence : undefined;
+}
+
+function normalizeMetadata(value) {
+  if (!isRecord(value)) return {};
+  const metadata = {};
+  for (const [key, item] of Object.entries(value).slice(0, 100)) {
+    const safeKey = boundedText(key, '', 100);
+    if (!safeKey) continue;
+    if (item === null || ['string', 'number', 'boolean'].includes(typeof item)) {
+      metadata[safeKey] = typeof item === 'string' ? boundedText(item, '', 1200) : item;
+    } else if (Array.isArray(item)) {
+      metadata[safeKey] = item.slice(0, 100).map((entry) => typeof entry === 'string' ? boundedText(entry, '', 300) : entry);
+    } else {
+      let serialized;
+      try {
+        serialized = JSON.stringify(item);
+      } catch {
+        metadata[safeKey] = UNSERIALIZABLE_METADATA;
+        continue;
+      }
+      if (typeof serialized !== 'string') metadata[safeKey] = UNSERIALIZABLE_METADATA;
+      else if (serialized.length <= MAX_SERIALIZED_METADATA) metadata[safeKey] = item;
+      else metadata[safeKey] = TRUNCATED_METADATA;
+    }
+  }
+  return metadata;
 }
 
 function diagnostic(severity, code, message, details = {}) {
