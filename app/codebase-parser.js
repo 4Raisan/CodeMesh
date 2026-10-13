@@ -111,3 +111,23 @@ function isText(text) {
   }
   return controls / text.length < 0.02;
 }
+
+function kindForPath(path, language) {
+  const normalized = path.toLowerCase();
+  const name = basename(normalized);
+  if (/(^|\/)(test|tests|spec|specs|__tests__)(\/|$)/.test(normalized) || /\.(test|spec)\.[^.]+$/.test(name)) return 'test';
+  if (/^(readme|changelog|contributing|license|architecture|agents|claude)(\.|$)/.test(name) || /\.(md|mdx|rst|txt|adoc)$/.test(name)) return 'documentation';
+  if (['prisma', 'sql', 'graphql', 'gql'].includes(extensionOf(path)) || /schema|migration|database/.test(normalized)) return 'schema';
+  if (/^(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig.*\.json|vite\.config|webpack\.config|rollup\.config|next\.config|astro\.config|dockerfile|makefile)$/.test(name) || /\.(ya?ml|toml|ini|cfg|conf|env)$/.test(name)) return 'configuration';
+  if (SOURCE_EXTENSIONS.has(extensionOf(path))) return language === 'Text' ? 'file' : 'module';
+  return 'file';
+}
+
+function groupForKind(kind, language) {
+  if (kind === 'test') return 'test';
+  if (kind === 'documentation') return 'docs';
+  if (kind === 'schema') return 'data';
+  if (kind === 'configuration') return 'config';
+  if (['JavaScript', 'TypeScript', 'Vue', 'Svelte', 'Astro'].includes(language)) return 'code';
+  return 'code';
+}
