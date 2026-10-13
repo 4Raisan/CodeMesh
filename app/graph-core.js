@@ -119,6 +119,39 @@ function inferGroup(node) {
   return 'code';
 }
 
+function normalizeRepository(input) {
+  const raw = isRecord(input.repository) ? input.repository : (isRecord(input.sourceRepository) ? input.sourceRepository : {});
+  const name = boundedText(raw.name ?? raw.repository ?? input.repositoryName ?? 'Imported codebase', 'Imported codebase', 240);
+  const revision = boundedText(raw.revision ?? raw.branch ?? input.revision ?? 'unknown', 'unknown', 160);
+  const repository = { name, revision };
+  const url = boundedText(raw.url, '', 500);
+  if (/^https:\/\/[^\s]+$/i.test(url)) repository.url = url;
+  return repository;
+}
+
+function normalizeCoverage(value, fallback = {}) {
+  const raw = isRecord(value) ? value : {};
+  const source = { ...fallback, ...raw };
+  const coverage = {};
+  for (const key of ['filesDiscovered', 'filesScanned', 'filesSkipped', 'filesUnsupported', 'totalBytes', 'maxInitialNodes']) {
+    const numeric = finiteNumber(source[key]);
+    if (numeric !== undefined && numeric >= 0) coverage[key] = Math.floor(numeric);
+  }
+  for (const key of ['partial', 'stale', 'truncated', 'label']) {
+    if (typeof source[key] === 'boolean' || typeof source[key] === 'string') coverage[key] = source[key];
+  }
+  return coverage;
+}
+
+function normalizeExtractor(value) {
+  const raw = isRecord(value) ? value : {};
+  return {
+    name: boundedText(raw.name, 'unknown', 160),
+    version: boundedText(raw.version, 'unknown', 80),
+    mode: boundedText(raw.mode, 'imported', 120)
+  };
+}
+
 function normalizePositions(value, validIds) {
   const positions = {};
   if (!isRecord(value)) return positions;
