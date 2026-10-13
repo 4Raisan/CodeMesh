@@ -131,3 +131,80 @@ function groupForKind(kind, language) {
   if (['JavaScript', 'TypeScript', 'Vue', 'Svelte', 'Astro'].includes(language)) return 'code';
   return 'code';
 }
+
+function lineStarts(text) {
+  const starts = [0];
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.charCodeAt(index) === 10) starts.push(index + 1);
+  }
+  return starts;
+}
+
+function lineNumberAt(starts, index) {
+  let low = 0;
+  let high = starts.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (starts[middle] <= index) low = middle + 1;
+    else high = middle - 1;
+  }
+  return Math.max(1, high + 1);
+}
+
+function addMatch(matches, starts, index, specifier, kind = 'IMPORTS') {
+  if (!specifier || specifier.length > 500 || specifier.includes('\n')) return;
+  matches.push({ specifier, kind, line: lineNumberAt(starts, index), index });
+}
+
+function extractImports(text, language) {
+  const matches = [];
+  const starts = lineStarts(text);
+  const addAll = (regex, mapper, kind = 'IMPORTS') => {
+    regex.lastIndex = 0;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const mapped = mapper(match);
+      if (Array.isArray(mapped)) mapped.forEach((entry) => addMatch(matches, starts, match.index, entry, kind));
+      else addMatch(matches, starts, match.index, mapped, kind);
+    }
+  };
+  if (['JavaScript', 'TypeScript', 'Vue', 'Svelte', 'Astro'].includes(language)) {
+    addAll(/\b(?:import|export)\s+(?:[\s\S]*?\s+from\s+)?["']([^"']+)["']/g, (match) => match[1]);
+    addAll(/\brequire\s*\(\s*["']([^"']+)["']\s*\)/g, (match) => match[1]);
+    addAll(/\bimport\s*\(\s*["']([^"']+)["']\s*\)/g, (match) => match[1]);
+    addAll(/from\s+["']([^"']+)["']/g, (match) => match[1]);
+  }
+  if (language === 'Python') {
+    addAll(/^\s*from\s+([.\w]+)\s+import\b/gm, (match) => match[1]);
+    addAll(/^\s*import\s+([.\w]+(?:\s*,\s*[.\w]+)*)/gm, (match) => match[1].split(',').map((value) => value.trim()));
+  }
+  if (language === 'Go') {
+    addAll(/\bimport\s*\(([\s\S]*?)\)/g, (match) => [...match[1].matchAll(/["`]([^"`]+)["`]/g)].map((item) => item[1]));
+    addAll(/^\s*import\s+(?:[A-Za-z_.]\s+)?["`]([^"`]+)["`]/gm, (match) => match[1]);
+  }
+  if (language === 'Rust') {
+    addAll(/^\s*(?:pub\s+)?use\s+([A-Za-z_][\w]*(?:::[A-Za-z_][\w]*)+)/gm, (match) => match[1]);
+    addAll(/^\s*(?:pub\s+)?mod\s+([A-Za-z_][\w]*)\s*;/gm, (match) => `crate::${match[1]}`);
+  }
+  if (['Java', 'Kotlin', 'C#', 'Swift', 'Objective-C', 'Objective-C++'].includes(language)) {
+    addAll(/^\s*(?:import|using)\s+(?:static\s+)?([A-Za-z_][\w.]*(?:\.\*)?)\s*;?/gm, (match) => match[1]);
+  }
+  if (language === 'Ruby') {
+    addAll(/\brequire(?:_relative)?\s*\(?\s*["']([^"']+)["']/g, (match) => match[1]);
+  }
+  if (language === 'PHP') {
+    addAll(/^\s*(?:use|require(?:_once)?|include(?:_once)?)\s+["']([^"']+)["']/gm, (match) => match[1]);
+  }
+  if (['CSS', 'SCSS', 'Less'].includes(language)) {
+    addAll(/@import\s+(?:url\()?\s*["']([^"']+)["']/gi, (match) => match[1]);
+  }
+  if (language === 'HTML') {
+    addAll(/<(?:script|link)\b[^>]*\b(?:src|href)\s*=\s*["'](?!https?:|\/\/|data:)([^"']+)["']/gi, (match) => match[1]);
+  }
+  if (language === 'Markdown') {
+    addAll(/\[[^\]]*\]\((?!https?:|mailto:|#)([^)]+)\)/gi, (match) => match[1].split('#')[0], 'DOCUMENTS');
+  }
+  const unique = new Map();
+  for (const match of matches) unique.set(`${match.kind}:${match.line}:${match.specifier}`, match);
+  return [...unique.values()];
+}
