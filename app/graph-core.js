@@ -396,3 +396,38 @@ export class GraphBuilder {
     });
   }
 }
+
+export function createIndexes(document) {
+  const nodesById = new Map();
+  const incoming = new Map();
+  const outgoing = new Map();
+  const degree = new Map();
+  for (const node of document?.nodes ?? []) {
+    nodesById.set(node.id, node);
+    incoming.set(node.id, []);
+    outgoing.set(node.id, []);
+    degree.set(node.id, 0);
+  }
+  for (const edge of document?.edges ?? []) {
+    if (!nodesById.has(edge.source) || !nodesById.has(edge.target)) continue;
+    outgoing.get(edge.source).push(edge);
+    incoming.get(edge.target).push(edge);
+    degree.set(edge.source, degree.get(edge.source) + 1);
+    degree.set(edge.target, degree.get(edge.target) + 1);
+  }
+  return { nodesById, incoming, outgoing, degree };
+}
+
+export function fingerprintDocument(document) {
+  const text = [
+    document?.schemaVersion ?? SCHEMA_VERSION,
+    ...(document?.nodes ?? []).map((node) => `n:${node.id}:${node.kind}`),
+    ...(document?.edges ?? []).map((edge) => `e:${edge.source}:${edge.target}:${edge.kind}:${edge.id}`)
+  ].join('|');
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `kg-${(hash >>> 0).toString(16)}`;
+}
