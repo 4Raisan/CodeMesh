@@ -269,3 +269,43 @@ function resolveImport(fromPath, specifier, language, filePaths, options) {
   if (language === 'Ruby' && clean.startsWith('.')) return resolveRelativeImport(fromPath, clean, filePaths, options);
   return { path: null, resolution: 'external', reason: 'package-or-runtime' };
 }
+
+function routeId(method, path, filePath, line) {
+  return `route:${method}:${path}:${filePath}:${line}`;
+}
+
+function extractRoutes(text, language, filePath) {
+  const routes = [];
+  const starts = lineStarts(text);
+  const add = (method, path, index, framework) => {
+    const cleanPath = String(path ?? '').trim();
+    if (!cleanPath || (!cleanPath.startsWith('/') && !cleanPath.startsWith(':'))) return;
+    const normalizedMethod = String(method ?? 'ANY').toUpperCase().replace('ALL', 'ANY');
+    routes.push({
+      id: routeId(normalizedMethod, cleanPath, filePath, lineNumberAt(starts, index)),
+      kind: 'route',
+      label: `${normalizedMethod} ${cleanPath}`,
+      group: 'route',
+      method: normalizedMethod,
+      path: cleanPath,
+      line: lineNumberAt(starts, index),
+      framework
+    });
+  };
+  let match;
+  const jsRoute = /\b(?:app|router|server|fastify|api)\s*\.\s*(get|post|put|patch|delete|options|head|all)\s*\(\s*["'`]([^"'`]+)["'`]/gi;
+  while ((match = jsRoute.exec(text)) !== null) add(match[1], match[2], match.index, 'http');
+  const pythonGet = /@(app|router|api|blueprint|bp)\.(get|post|put|patch|delete|options|head)\s*\(\s*["']([^"']+)["']/gim;
+  while ((match = pythonGet.exec(text)) !== null) add(match[2], match[3], match.index, 'python');
+  const pythonRoute = /@(app|router|api|blueprint|bp)\.route\s*\(\s*["']([^"']+)["']([^\n]*)/gim;
+  while ((match = pythonRoute.exec(text)) !== null) {
+    const methods = [...match[3].matchAll(/["']([A-Z]+)["']/g)].map((item) => item[1]);
+    const methodList = methods.length > 0 ? methods : ['ANY'];
+    for (const method of methodList) add(method, match[2], match.index, 'python');
+  }
+  const javaRoute = /@(Get|Post|Put|Patch|Delete|Request)Mapping\s*\(\s*(?:value\s*=\s*)?["']([^"']+)/gim;
+  while ((match = javaRoute.exec(text)) !== null) add(match[1] === 'Request' ? 'ANY' : match[1], match[2], match.index, 'jvm');
+  const goRoute = /\b(Handle|HandleFunc|GET|POST|PUT|PATCH|DELETE)\s*\(\s*["`]([^"`]+)/g;
+  while ((match = goRoute.exec(text)) !== null) add(match[1] === 'Handle' || match[1] === 'HandleFunc' ? 'ANY' : match[1], match[2], match.index, 'go');
+  return routes;
+}
