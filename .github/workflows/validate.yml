@@ -1,0 +1,19 @@
+name: Validate CodeMesh
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm --prefix app run lint
+      - run: npm --prefix app run check
+      - run: npm --prefix app test
+      - run: npm --prefix app run build:standalone
+      - run: git diff --exit-code -- release/CodeMesh.html
