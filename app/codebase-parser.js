@@ -208,3 +208,64 @@ function extractImports(text, language) {
   for (const match of matches) unique.set(`${match.kind}:${match.line}:${match.specifier}`, match);
   return [...unique.values()];
 }
+
+function extensionCandidates(path) {
+  const extension = extensionOf(path);
+  const candidates = [path];
+  if (!extension) {
+    for (const value of ['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'py', 'go', 'rs', 'java', 'kt', 'rb', 'php', 'json', 'yaml', 'yml', 'md']) candidates.push(`${path}.${value}`);
+    for (const value of ['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'py', 'go', 'rs', 'java', 'kt', 'rb', 'php']) candidates.push(`${path}/index.${value}`);
+  } else if (['js', 'jsx', 'mjs', 'cjs'].includes(extension)) {
+    for (const value of ['ts', 'tsx', 'jsx', 'js']) candidates.push(path.replace(/\.[^.]+$/, `.${value}`));
+  } else if (['ts', 'tsx'].includes(extension)) {
+    for (const value of ['js', 'jsx', 'tsx', 'ts']) candidates.push(path.replace(/\.[^.]+$/, `.${value}`));
+  }
+  if (path.endsWith('/') || path.endsWith('__init__')) {
+    for (const value of ['ts', 'tsx', 'js', 'jsx', 'py']) candidates.push(`${path}${value}`);
+  }
+  return [...new Set(candidates.map(normalizeSourcePath))];
+}
+
+function resolveRelativeImport(fromPath, specifier, filePaths, options) {
+  let target = specifier.split(/[?#]/)[0];
+  let packageRoot = dirname(fromPath);
+  while (packageRoot && !filePaths.has(joinPath(packageRoot, 'package.json'))) packageRoot = dirname(packageRoot);
+  if (target.startsWith('@/') || target.startsWith('~/')) target = joinPath(options.sourceRoot ?? joinPath(packageRoot, 'src'), target.slice(2));
+  else if (target.startsWith('/')) target = joinPath(packageRoot, target.slice(1));
+  else target = joinPath(dirname(fromPath), target);
+  if (target.startsWith('..')) return { path: null, resolution: 'unresolved', reason: 'outside-project' };
+  const candidates = extensionCandidates(target);
+  for (const candidate of candidates) {
+    if (filePaths.has(candidate)) return { path: candidate, resolution: 'resolved' };
+  }
+  return { path: null, resolution: 'unresolved', reason: 'missing-target' };
+}
+
+function resolvePythonImport(fromPath, specifier, filePaths, options) {
+  const clean = specifier.split(/[?#]/)[0];
+  const relative = /^\.+/.exec(clean)?.[0] ?? '';
+  const moduleName = clean.slice(relative.length).replace(/\./g, '/');
+  const base = relative ? joinPath(dirname(fromPath), ...Array.from({ length: relative.length - 1 }, () => '..'), moduleName) : joinPath(options.sourceRoot ?? 'src', moduleName);
+  const candidates = [base, ...(relative ? [] : [moduleName]), ...(relative ? [] : [joinPath('lib', moduleName)])];
+  for (const candidate of candidates) {
+    for (const resolved of extensionCandidates(candidate)) {
+      if (filePaths.has(resolved)) return { path: resolved, resolution: 'resolved' };
+    }
+  }
+  return { path: null, resolution: 'unresolved', reason: 'missing-target' };
+}
+
+function resolveImport(fromPath, specifier, language, filePaths, options) {
+  const clean = specifier.split(/[?#]/)[0];
+  if (!clean) return { path: null, resolution: 'unresolved', reason: 'empty-specifier' };
+  if (clean.startsWith('.') || clean.startsWith('/') || clean.startsWith('@/') || clean.startsWith('~/')) {
+    return resolveRelativeImport(fromPath, clean, filePaths, options);
+  }
+  if (language === 'Python') return resolvePythonImport(fromPath, clean, filePaths, options);
+  if (clean.startsWith('crate::') || clean.startsWith('super::') || clean.startsWith('self::')) {
+    const module = clean.split('::').filter(Boolean).slice(-1)[0];
+    return resolveRelativeImport(fromPath, `./${module}`, filePaths, options);
+  }
+  if (language === 'Ruby' && clean.startsWith('.')) return resolveRelativeImport(fromPath, clean, filePaths, options);
+  return { path: null, resolution: 'external', reason: 'package-or-runtime' };
+}
