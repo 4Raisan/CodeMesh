@@ -13,6 +13,21 @@ const LANGUAGE_BY_EXTENSION = new Map(Object.entries({
   vue: 'Vue', svelte: 'Svelte', astro: 'Astro'
 }));
 
+const IGNORED_SEGMENTS = new Set([
+  '.git', '.hg', '.svn', 'node_modules', 'vendor', 'dist', 'build', 'out', 'coverage', '.next', '.nuxt', '.svelte-kit',
+  '.turbo', '.cache', '.parcel-cache', '.pytest_cache', '__pycache__', '.venv', 'venv', 'target', 'bin', 'obj', '.idea', '.vscode', '.wwebjs_auth', '.wwebjs_cache'
+]);
+
+const SOURCE_EXTENSIONS = new Set([
+  'js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'mts', 'cts', 'py', 'pyw', 'go', 'rs', 'java', 'kt', 'kts', 'cs', 'rb', 'php',
+  'swift', 'm', 'mm', 'c', 'h', 'cc', 'cpp', 'cxx', 'hpp', 'hh', 'css', 'scss', 'sass', 'less', 'html', 'htm', 'vue', 'svelte', 'astro',
+  'json', 'jsonc', 'yaml', 'yml', 'toml', 'xml', 'graphql', 'gql', 'sql', 'prisma', 'md', 'mdx', 'sh', 'bash', 'zsh', 'ps1', 'bat', 'cmd'
+]);
+
+const DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024;
+const DEFAULT_MAX_TOTAL_BYTES = 40 * 1024 * 1024;
+const DEFAULT_MAX_FILES = 5000;
+
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -66,6 +81,17 @@ function commonDirectory(paths) {
   return common.length > 0 && common.length < first.length ? `${common.join('/')}/` : '';
 }
 
+export function shouldIgnorePath(path) {
+  const normalized = normalizeSourcePath(path);
+  if (!normalized || normalized.split('/').some((segment) => IGNORED_SEGMENTS.has(segment))) return true;
+  const name = basename(normalized).toLowerCase();
+  if (name === '.env' || name.startsWith('.env.')) return true;
+  if (name.endsWith('.min.js') || name.endsWith('.map') || name === 'package-lock.json' || name === 'yarn.lock' || name === 'pnpm-lock.yaml') return true;
+  if (name === '.ds_store' || name === 'thumbs.db') return true;
+  if (name === 'kg-map.html' || name === 'kgmap.html' || name === 'codemesh.html') return true;
+  return false;
+}
+
 export function detectLanguage(path) {
   const name = basename(path).toLowerCase();
   if (name === 'dockerfile') return 'Dockerfile';
@@ -73,4 +99,15 @@ export function detectLanguage(path) {
   if (name === 'package.json') return 'JSON';
   if (name === 'package-lock.json' || name === 'pnpm-lock.yaml' || name === 'yarn.lock') return 'Lockfile';
   return LANGUAGE_BY_EXTENSION.get(extensionOf(path)) ?? 'Text';
+}
+
+function isText(text) {
+  if (typeof text !== 'string' || text.length === 0) return false;
+  let controls = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    if (code === 0) return false;
+    if (code < 9 || (code > 13 && code < 32)) controls += 1;
+  }
+  return controls / text.length < 0.02;
 }
