@@ -309,3 +309,64 @@ function extractRoutes(text, language, filePath) {
   while ((match = goRoute.exec(text)) !== null) add(match[1] === 'Handle' || match[1] === 'HandleFunc' ? 'ANY' : match[1], match[2], match.index, 'go');
   return routes;
 }
+
+function callArguments(text, opening) {
+  let depth = 0;
+  let quote = null;
+  for (let index = opening; index < text.length; index += 1) {
+    const char = text[index];
+    if (quote) {
+      if (char === '\\') index += 1;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === '`') quote = char;
+    else if (char === '(') depth += 1;
+    else if (char === ')' && --depth === 0) return text.slice(opening + 1, index);
+  }
+  return '';
+}
+
+function extractApiCalls(text, language) {
+  const calls = [];
+  const starts = lineStarts(text);
+  const add = (path, index, method = 'ANY') => {
+    const clean = String(path ?? '').split(/[?#]/)[0];
+    if (!clean.startsWith('/')) return;
+    calls.push({ path: clean, method, line: lineNumberAt(starts, index), index });
+  };
+  let match;
+  const jsCall = /\b(fetch|apiRequest|axios(?:\.(get|post|put|patch|delete|head|options))?)\s*\(\s*(["'`])([\s\S]*?)\3/gi;
+  while ((match = jsCall.exec(text)) !== null) {
+    const argumentsText = callArguments(text, text.indexOf('(', match.index));
+    const optionsText = argumentsText.slice(argumentsText.indexOf(match[3], 0) + match[4].length + 2);
+    const methodOption = /\bmethod\s*:\s*["'](GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)["']/i.exec(optionsText);
+    const dynamicMethod = /\bmethod\s*:/.test(optionsText) && !methodOption;
+    const method = match[2]?.toUpperCase() ?? methodOption?.[1].toUpperCase() ?? (match[1] === 'fetch' && !dynamicMethod ? 'GET' : 'ANY');
+    add(match[4], match.index, method);
+  }
+  const pythonCall = /(?:requests|httpx)\s*\.\s*(get|post|put|patch|delete)\s*\(\s*["']([^"']+)/gi;
+  while ((match = pythonCall.exec(text)) !== null) add(match[2], match.index, match[1].toUpperCase());
+  if (language === 'Go') {
+    const goCall = /\b(?:http\.Get|http\.Post|http\.NewRequest)\s*\(\s*(?:[^,]+,\s*)?["`]([^"`]+)/g;
+    while ((match = goCall.exec(text)) !== null) add(match[1], match.index);
+  }
+  return calls;
+}
+
+function normalizeRoutePath(path) {
+  return String(path)
+    .replace(/\/+$/, '')
+    .replace(/\$\{[^}]+\}/g, ':id')
+    .replace(/\/:\w+/g, '/:id')
+    .replace(/\/\d+(?=\/|$)/g, '/:id')
+    || '/';
+}
+
+function routePathsMatch(routePath, callPath) {
+  const route = normalizeRoutePath(routePath);
+  const call = normalizeRoutePath(callPath);
+  const routeParts = route.split('/');
+  const callParts = call.split('/');
+  return routeParts.length === callParts.length && routeParts.every((part, index) => part === ':id' ? Boolean(callParts[index]) : part === callParts[index]);
+}
