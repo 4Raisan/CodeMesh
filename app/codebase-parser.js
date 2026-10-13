@@ -1,4 +1,4 @@
-
+import { GraphBuilder, SCHEMA_VERSION } from './graph-core.js';
 
 const LANGUAGE_BY_EXTENSION = new Map(Object.entries({
   js: 'JavaScript', jsx: 'JavaScript', mjs: 'JavaScript', cjs: 'JavaScript',
@@ -419,4 +419,144 @@ function packageDependencies(text) {
   } catch {
     return [];
   }
+}
+
+function externalNodeId(specifier, unresolved) {
+  return `${unresolved ? 'unresolved' : 'external'}:${specifier}`;
+}
+
+export function createCodebaseGraph(records, options = {}) {
+  const maxFiles = options.maxFiles ?? DEFAULT_MAX_FILES;
+  const maxFileBytes = options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
+  const maxTotalBytes = options.maxTotalBytes ?? DEFAULT_MAX_TOTAL_BYTES;
+  const inputRecords = Array.isArray(records) ? records : [];
+  const rawRecords = inputRecords.filter((record) => isRecord(record));
+  const malformed = inputRecords.length - rawRecords.length;
+  const strippedRoot = options.stripCommonRoot === true ? commonDirectory(rawRecords.map((record) => normalizeSourcePath(record.path ?? record.webkitRelativePath ?? record.name)).filter(Boolean)) : '';
+  const normalizedRecords = [];
+  let discovered = 0;
+  let skipped = malformed;
+  let unsupported = 0;
+  let totalBytes = 0;
+  for (const record of rawRecords.slice(0, maxFiles)) {
+    discovered += 1;
+    const rawPath = record.path ?? record.webkitRelativePath ?? record.name ?? '';
+    let path = normalizeSourcePath(rawPath);
+    if (strippedRoot && path.startsWith(strippedRoot)) path = path.slice(strippedRoot.length);
+    const text = typeof record.text === 'string' ? record.text : '';
+    if (shouldIgnorePath(path)) {
+      skipped += 1;
+      continue;
+    }
+    if (!SOURCE_EXTENSIONS.has(extensionOf(path)) && !['dockerfile', 'makefile', 'readme', 'license'].includes(basename(path).toLowerCase())) {
+      skipped += 1;
+      unsupported += 1;
+      continue;
+    }
+    if (!isText(text)) {
+      skipped += 1;
+      unsupported += 1;
+      continue;
+    }
+    const bytes = new TextEncoder().encode(text).byteLength;
+    if (bytes > maxFileBytes) {
+      skipped += 1;
+      continue;
+    }
+    if (totalBytes + bytes > maxTotalBytes) {
+      skipped += 1;
+      break;
+    }
+    totalBytes += bytes;
+    normalizedRecords.push({ path, text, bytes });
+  }
+  const rootName = strippedRoot.replace(/\/$/, '').split('/').pop() || options.name || 'Dropped codebase';
+  const revision = options.revision || 'browser-import';
+  const builder = new GraphBuilder({
+    name: options.name || rootName,
+    repository: { name: options.name || rootName, revision },
+    generatedAt: options.generatedAt ?? new Date().toISOString(),
+    extractor: { name: 'codemesh-static', version: '1.0.0', mode: 'browser-folder-drop' },
+    coverage: { filesDiscovered: discovered, filesScanned: normalizedRecords.length, filesSkipped: skipped, filesUnsupported: unsupported, totalBytes, partial: skipped > 0, maxInitialNodes: 650 }
+  });
+  if (rawRecords.length > maxFiles) builder.addDiagnostic('warning', 'file-limit', `Only the first ${maxFiles} dropped entries were inspected.`);
+  if (malformed > 0) builder.addDiagnostic('warning', 'invalid-record', `${malformed} dropped entries were not readable file records and were ignored.`);
+  if (skipped > 0) builder.addDiagnostic('info', 'files-skipped', `${skipped} dropped entries were ignored as binary, oversized, generated, or excluded by path rules.`);
+  const filePaths = new Set(normalizedRecords.map((record) => record.path));
+  const files = new Map();
+  for (const record of normalizedRecords) {
+    const language = detectLanguage(record.path);
+    const kind = kindForPath(record.path, language);
+    const id = `file:${record.path}`;
+    const lineCount = record.text.split('\n').length;
+    builder.addNode({
+      id,
+      kind,
+      label: record.path,
+      group: groupForKind(kind, language),
+      source: { path: record.path, revision },
+      file: record.path,
+      metadata: { language, bytes: record.bytes, lineCount }
+    });
+    files.set(record.path, { ...record, language, kind, id });
+  }
+  const routeRecords = [];
+  const modelRecords = [];
+  for (const file of files.values()) {
+    const routes = extractRoutes(file.text, file.language, file.path);
+    for (const route of routes) {
+      builder.addNode({ ...route, source: { path: file.path, startLine: route.line, endLine: route.line, revision }, metadata: { method: route.method, path: route.path, framework: route.framework } });
+      builder.addEdge({ id: `exposes:${route.id}`, source: file.id, target: route.id, kind: 'EXPOSES', label: route.method, evidence: { path: file.path, startLine: route.line, endLine: route.line, extractor: 'route-pattern', revision }, inferred: false, confidence: 0.9, resolution: 'heuristic' });
+      routeRecords.push({ ...route, fileId: file.id });
+    }
+    for (const model of extractModels(file.text, file.language, file.path)) {
+      builder.addNode({ ...model, source: { path: file.path, startLine: model.line, endLine: model.line, revision }, metadata: { language: file.language } });
+      builder.addEdge({ id: `defines:${model.id}`, source: file.id, target: model.id, kind: 'DEFINES', label: model.kind, evidence: { path: file.path, startLine: model.line, endLine: model.line, extractor: 'schema-pattern', revision }, inferred: false, confidence: 0.9, resolution: 'heuristic' });
+      modelRecords.push({ ...model, fileId: file.id });
+    }
+  }
+  const unresolvedKeys = new Set();
+  for (const file of files.values()) {
+    const imports = extractImports(file.text, file.language);
+    for (const imported of imports) {
+      const resolved = resolveImport(file.path, imported.specifier, file.language, filePaths, options);
+      if (resolved.path && files.has(resolved.path)) {
+        builder.addEdge({ id: `imports:${file.id}:${file.path}:${imported.line}:${imported.index}`, source: file.id, target: files.get(resolved.path).id, kind: imported.kind, label: imported.specifier, evidence: { path: file.path, startLine: imported.line, endLine: imported.line, extractor: 'static-import-pattern', revision }, inferred: false, confidence: 0.95, resolution: 'resolved' });
+        continue;
+      }
+      const unresolved = resolved.resolution === 'unresolved';
+      const targetId = externalNodeId(imported.specifier, unresolved);
+      builder.addNode({ id: targetId, kind: unresolved ? 'unresolved' : 'external', label: imported.specifier, group: unresolved ? 'unresolved' : 'external', metadata: { unresolved, reason: resolved.reason, language: file.language } });
+      builder.addEdge({ id: `imports:${file.id}:${file.path}:${imported.line}:${imported.index}`, source: file.id, target: targetId, kind: imported.kind, label: imported.specifier, evidence: { path: file.path, startLine: imported.line, endLine: imported.line, extractor: 'static-import-pattern', revision }, inferred: true, confidence: unresolved ? 0.35 : 0.8, resolution: resolved.resolution });
+      const key = `${imported.specifier}:${unresolved}`;
+      if (unresolved && !unresolvedKeys.has(key)) {
+        unresolvedKeys.add(key);
+        builder.addDiagnostic('info', 'unresolved-import', `Import ${imported.specifier} from ${file.path} could not be resolved.`, { path: file.path, line: imported.line });
+      }
+    }
+    const calls = extractApiCalls(file.text, file.language);
+    for (const [callIndex, call] of calls.entries()) {
+      const callId = `call:${file.path}:${call.line}:${callIndex}:${call.path}`;
+      builder.addNode({ id: callId, kind: 'api-call', label: `${call.method} ${call.path}`, group: 'route', source: { path: file.path, startLine: call.line, endLine: call.line, revision }, metadata: { path: call.path, method: call.method, line: call.line } });
+      builder.addEdge({ id: `calls:${callId}`, source: file.id, target: callId, kind: 'CALLS', label: call.path, evidence: { path: file.path, startLine: call.line, endLine: call.line, extractor: 'api-call-pattern', revision }, inferred: true, confidence: 0.7, resolution: 'heuristic' });
+      const candidates = routeRecords.filter((item) => routePathsMatch(item.path, call.path) && (item.method === 'ANY' || call.method === 'ANY' || item.method === call.method));
+      const exact = candidates.filter((item) => item.path.replace(/\/+$/, '') === call.path.replace(/\/+$/, ''));
+      const matches = exact.length ? exact : candidates;
+      const route = matches.length === 1 ? matches[0] : null;
+      if (matches.length > 1) builder.addDiagnostic('info', 'ambiguous-api-target', `API call ${call.method} ${call.path} has multiple possible routes; no target was guessed.`, { path: file.path, line: call.line });
+      if (route) builder.addEdge({ id: `targets:${callId}:${route.id}`, source: callId, target: route.id, kind: 'TARGETS', label: route.method, evidence: { path: file.path, startLine: call.line, endLine: call.line, extractor: 'api-path-match', revision }, inferred: true, confidence: 0.65, resolution: 'heuristic' });
+    }
+    if (basename(file.path).toLowerCase() === 'package.json') {
+      for (const dependency of packageDependencies(file.text)) {
+        const targetId = `external:${dependency.name}`;
+        builder.addNode({ id: targetId, kind: 'external', label: dependency.name, group: 'external', metadata: { package: true, version: dependency.version, dependencyGroup: dependency.group } });
+        builder.addEdge({ id: `depends:${file.id}:${dependency.name}`, source: file.id, target: targetId, kind: 'DEPENDS_ON', label: dependency.version, evidence: { path: file.path, extractor: 'package-json', revision }, inferred: false, confidence: 1, resolution: 'resolved' });
+      }
+    }
+  }
+  if (normalizedRecords.length === 0) builder.addDiagnostic('warning', 'empty-codebase', 'No readable text files were found in the dropped selection.');
+  const document = builder.build();
+  document.coverage.modelCount = modelRecords.length;
+  document.coverage.routeCount = routeRecords.length;
+  return document;
 }
