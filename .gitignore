@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+*.zip
+.env
+.env.*
+
+# Local dependencies, generated stress fixtures, and private QA captures
+node_modules/
+app/stress-*.html
+docs/qa/
+*.log
+.vscode/
+.idea/
