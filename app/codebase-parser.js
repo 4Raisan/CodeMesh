@@ -370,3 +370,53 @@ function routePathsMatch(routePath, callPath) {
   const callParts = call.split('/');
   return routeParts.length === callParts.length && routeParts.every((part, index) => part === ':id' ? Boolean(callParts[index]) : part === callParts[index]);
 }
+
+function extractModels(text, language, filePath) {
+  const models = [];
+  const starts = lineStarts(text);
+  const add = (kind, name, index) => {
+    if (!name || !/^[A-Za-z_][\w.-]*$/.test(name)) return;
+    const normalizedKind = kind.toLowerCase() === 'enum' ? 'enum' : 'model';
+    models.push({
+      id: `schema:${normalizedKind}:${name}:${filePath}`,
+      kind: normalizedKind,
+      label: name,
+      group: 'data',
+      line: lineNumberAt(starts, index)
+    });
+  };
+  let match;
+  if (language === 'Prisma') {
+    const prisma = /^\s*(model|enum)\s+([A-Za-z_][\w]*)/gm;
+    while ((match = prisma.exec(text)) !== null) add(match[1], match[2], match.index);
+  }
+  if (language === 'SQL') {
+    const sql = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`\[]?([A-Za-z_][\w.-]*)/gim;
+    while ((match = sql.exec(text)) !== null) add('model', match[1], match.index);
+  }
+  if (['Java', 'Kotlin', 'C#', 'Python', 'TypeScript', 'JavaScript'].includes(language)) {
+    const entity = /@(?:Entity|Table|Model)\s*\([^)]*\)\s*(?:export\s+)?(?:class|interface|type)\s+([A-Za-z_][\w]*)/g;
+    while ((match = entity.exec(text)) !== null) add('model', match[1], match.index);
+    const classLike = /^\s*(?:export\s+)?(?:class|interface)\s+([A-Z][A-Za-z0-9_]*)/gm;
+    while ((match = classLike.exec(text)) !== null) {
+      if (!models.some((item) => item.label === match[1] && item.line === lineNumberAt(starts, match.index))) add('class', match[1], match.index);
+    }
+  }
+  return models;
+}
+
+function packageDependencies(text) {
+  try {
+    const parsed = JSON.parse(text);
+    const dependencies = [];
+    for (const group of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+      if (!isRecord(parsed[group])) continue;
+      for (const [name, version] of Object.entries(parsed[group])) {
+        if (typeof version === 'string') dependencies.push({ name, version, group });
+      }
+    }
+    return dependencies;
+  } catch {
+    return [];
+  }
+}
