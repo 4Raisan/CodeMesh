@@ -8,9 +8,7 @@ import {
   getVisibleNodeIds,
   normalizeGraphDocument
 } from './graph-core.js';
-
 import { createCodebaseGraph, shouldIgnorePath } from './codebase-parser.js';
-
 import { GraphRenderer } from './renderer.js';
 
 const dom = {
@@ -88,19 +86,16 @@ const defaultViewSettings = Object.freeze({
 });
 
 let renderer;
-
 let toastTimer;
-
 let activeParserJob = null;
-
 let documentSequence = 0;
-
 let importStartedAt = Date.now();
-
 let projectNoticeTimer;
-
 let serverAutoPromise = null;
 
+// Every path that can replace the loaded document takes a token. A token is minted when
+// the user expresses an intent and re-checked immediately before any state mutation, so a
+// slow auto-discovery or folder read can never overwrite a newer explicit import.
 function beginDocumentOperation() {
   documentSequence += 1;
   importStartedAt = Date.now();
@@ -914,6 +909,56 @@ function applySavedView(payload, quiet = false, operation = beginDocumentOperati
   return true;
 }
 
+function saveView() {
+  const payload = {
+    type: 'codemesh-view',
+    schemaVersion: 'codemesh-view/1',
+    fingerprint: state.document.fingerprint,
+    repository: state.document.repository,
+    savedAt: new Date().toISOString(),
+    view: viewForStorage(renderer.getView())
+  };
+  try {
+    window.localStorage.setItem(localViewKey(state.document), JSON.stringify(payload));
+    showToast('Saved this view in browser storage. Use Export view to share a file.');
+  } catch {
+    showToast('Browser storage is unavailable. Use Export view instead.', 'warning');
+  }
+}
+
+function exportFilename(kind, extension) {
+  const name = (state.document.repository?.name || 'CodeMesh').replace(/[<>:"/\\|?*\s]+/g, '-').replace(/^-+|-+$/g, '') || 'CodeMesh';
+  const now = new Date();
+  const pad = value => String(value).padStart(2, '0');
+  const time = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
+  return `${name}-${time}-${kind}.${extension}`;
+}
+
+function exportView() {
+  const payload = {
+    type: 'codemesh-view',
+    schemaVersion: 'codemesh-view/1',
+    fingerprint: state.document.fingerprint,
+    repository: state.document.repository,
+    savedAt: new Date().toISOString(),
+    view: viewForStorage(renderer.getView())
+  };
+  downloadBlob(JSON.stringify(payload, null, 2), exportFilename('view', 'json'), 'application/json');
+  showToast('Saved view exported.');
+}
+
+function exportGraph() {
+  const view = renderer.getView();
+  const document = { ...state.document, positions: view.positions, stats: { ...state.document.stats, visibleNodes: renderer.visibleNodeIds.size } };
+  downloadBlob(JSON.stringify(document, null, 2), exportFilename('graph', 'json'), 'application/json');
+  showToast('Graph JSON exported.');
+}
+
+function exportSvg() {
+  downloadBlob(renderer.exportSvg(), exportFilename('diagram', 'svg'), 'image/svg+xml');
+  showToast('SVG diagram exported.');
+}
+
 function clearFilters() {
   state.view.overviewMode = 'all';
   state.view.isolationMode = 'all';
@@ -1108,6 +1153,201 @@ function setupDropTarget() {
     state.dragDepth = 0;
     dom.dropOverlay.classList.remove('is-visible');
     processDrop(event.dataTransfer);
+  });
+}
+
+function setupControls() {
+  dom.search.addEventListener('input', () => {
+    state.view.search = dom.search.value;
+    state.view.focusIds = null;
+    syncView();
+  });
+  dom.search.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      const first = getVisibleNodeIds(state.document, state.view, createIndexes(state.document), 1).values().next().value;
+      if (first) selectNode(first, true);
+    }
+    if (event.key === 'Escape') {
+      dom.search.value = '';
+      state.view.search = '';
+      syncView();
+    }
+  });
+  dom.searchClear.addEventListener('click', () => {
+    dom.search.value = '';
+    state.view.search = '';
+    syncView();
+    dom.search.focus();
+  });
+  document.getElementById('empty-clear').addEventListener('click', () => {
+    if (state.document.nodes.length === 0) document.getElementById('open-folder').click();
+    else clearFilters();
+  });
+  document.getElementById('clear-filters').addEventListener('click', clearFilters);
+  document.getElementById('fit-graph').addEventListener('click', () => renderer.fit());
+  document.getElementById('reset-layout').addEventListener('click', () => {
+    state.view.positions = {};
+    renderer.resetPositions();
+    requestAnimationFrame(() => renderer.fit());
+    showToast('Dragged positions and pins were cleared.');
+  });
+  document.getElementById('zoom-in').addEventListener('click', () => renderer.zoomBy(1.2));
+  document.getElementById('zoom-out').addEventListener('click', () => renderer.zoomBy(0.83));
+  document.getElementById('clear-selection').addEventListener('click', () => {
+    state.view.selectedId = null;
+    syncView();
+    setPanel(dom.inspectorPanel, false);
+  });
+  document.getElementById('label-edges').addEventListener('change', (event) => {
+    state.view.labelEdges = event.target.checked;
+    syncView();
+  });
+  dom.layoutMode.addEventListener('change', (event) => {
+    state.view.layoutMode = event.target.value;
+    state.view.positions = Object.fromEntries(Object.entries(state.view.positions).filter(([, position]) => position.pinned));
+    syncView();
+    requestAnimationFrame(() => renderer.fit());
+  });
+  dom.layoutSpacing.addEventListener('input', (event) => {
+    state.view.layoutSpacing = settingNumber(Number(event.target.value) / 100, defaultViewSettings.layoutSpacing, 0.65, 1.6);
+    state.view.positions = Object.fromEntries(Object.entries(state.view.positions).filter(([, position]) => position.pinned));
+    syncView();
+  });
+
+  dom.labelScale.addEventListener('input', (event) => {
+    state.view.labelScale = settingNumber(Number(event.target.value) / 100, defaultViewSettings.labelScale, 0.7, 1.6);
+    syncView();
+  });
+  dom.edgeOpacity.addEventListener('input', (event) => {
+    state.view.edgeOpacity = settingNumber(Number(event.target.value) / 100, defaultViewSettings.edgeOpacity, 0, 1);
+    syncView();
+  });
+  dom.motionToggle.addEventListener('change', (event) => {
+    state.view.animationEnabled = event.target.checked;
+    syncView();
+  });
+  dom.animationSpeed.addEventListener('input', (event) => {
+    state.view.animationSpeed = settingNumber(Number(event.target.value) / 100, defaultViewSettings.animationSpeed, 0.25, 2);
+    syncView();
+  });
+  dom.edgeLabelMode.addEventListener('change', (event) => {
+    state.view.edgeLabelMode = event.target.checked ? 'always' : 'off';
+    state.view.labelEdges = false;
+    syncView();
+  });
+  dom.backgroundColor.addEventListener('input', (event) => {
+    state.view.backgroundColor = settingColor(event.target.value, defaultViewSettings.backgroundColor);
+    syncView();
+  });
+  dom.resetSettings.addEventListener('click', () => {
+    Object.assign(state.view, defaultViewSettings, { labelEdges: false });
+    syncView();
+    showToast('Graph settings reset.');
+  });
+  for (const [id, key, divisor, minimum, maximum] of [
+
+    ['link-distance', 'linkDistance', 1, 0, 1500],
+    ['repulsion', 'repulsion', 100, -10, 10]
+  ]) {
+    const control = document.getElementById(id);
+    control?.addEventListener('input', (event) => {
+      state.view[key] = settingNumber(Number(event.target.value) / divisor, defaultViewSettings[key], minimum, maximum);
+      if (key === 'linkDistance' || key === 'repulsion') state.view.layoutMode = 'force';
+      if (key === 'linkDistance' || key === 'repulsion') state.view.positions = Object.fromEntries(Object.entries(state.view.positions).filter(([, position]) => position.pinned));
+      syncView();
+    });
+  }
+
+  document.getElementById('overview-mode')?.addEventListener('change', event => {
+    state.view.overviewMode = event.target.value;
+    state.view.activeKinds = new Set();
+    state.view.activeGroups = new Set();
+    state.view.search = '';
+    state.view.focusIds = null;
+    syncView();
+    requestAnimationFrame(() => renderer.fit());
+  });
+  for (const [id, color] of [['theme-night', '#0c1220'], ['theme-slate', '#202936'], ['theme-black', '#080a0e']]) {
+    document.getElementById(id).addEventListener('click', () => { state.view.backgroundColor = color; syncView(); });
+  }
+  document.getElementById('theme-custom').addEventListener('input', event => {
+    state.view.backgroundColor = settingColor(event.target.value, defaultViewSettings.backgroundColor);
+    syncView();
+  });
+
+  document.getElementById('inferred-opacity').addEventListener('input', event => {
+    state.view.inferredOpacity = Number(event.target.value) / 100;
+    syncView();
+  });
+  document.getElementById('legend-solid').addEventListener('change', event => {
+    state.view.showSolid = event.target.checked;
+    syncView();
+  });
+  document.getElementById('legend-inferred').addEventListener('change', event => {
+    state.view.showInferred = event.target.checked;
+    syncView();
+  });
+  document.getElementById('legend-toggle').addEventListener('click', () => {
+    const collapsed = document.getElementById('legend-panel').classList.toggle('is-collapsed');
+    const handle = document.getElementById('legend-toggle');
+    handle.setAttribute('aria-expanded', String(!collapsed));
+    handle.textContent = collapsed ? 'Legend ▴' : 'Legend ▾';
+  });
+  document.getElementById('background-connections').addEventListener('change', event => {
+    state.view.edgeDisplay = event.target.checked ? 'all' : 'selected';
+    syncView();
+  });
+  document.getElementById('connection-display').addEventListener('change', event => {
+    state.view.edgeDisplay = event.target.value;
+    syncView();
+  });
+  document.getElementById('show-inferred')?.addEventListener('change', event => {
+    state.view.showInferred = event.target.checked;
+    syncView();
+  });
+  for (const id of ['open-menu', 'export-menu']) {
+    const menu = document.getElementById(id);
+    menu.addEventListener('click', event => {
+      if (event.target.closest?.('summary') && !menu.open) document.getElementById(id === 'open-menu' ? 'export-menu' : 'open-menu').open = false;
+    });
+    menu?.addEventListener('click', event => { if (event.target.tagName === 'BUTTON') menu.open = false; });
+  }
+  dom.settingsFit.addEventListener('click', () => renderer.fit());
+  document.getElementById('export-svg').addEventListener('click', exportSvg);
+  document.getElementById('export-graph').addEventListener('click', exportGraph);
+  document.getElementById('export-view').addEventListener('click', exportView);
+  document.getElementById('open-files').addEventListener('click', () => dom.fileInput.click());
+  document.getElementById('open-folder').addEventListener('click', chooseCodebaseFolder);
+  dom.fileInput.addEventListener('change', () => {
+    if (dom.fileInput.files?.length) processFileList(dom.fileInput.files, 'selected files');
+    dom.fileInput.value = '';
+  });
+  dom.folderInput.addEventListener('change', () => {
+    if (dom.folderInput.files?.length) processFileList(dom.folderInput.files, 'selected folder');
+    dom.folderInput.value = '';
+  });
+
+  dom.viewInput.addEventListener('change', async () => {
+    const file = dom.viewInput.files?.[0];
+    dom.viewInput.value = '';
+    if (!file) return;
+    const operation = beginDocumentOperation();
+    try {
+      await handleViewFile(file, operation);
+    } catch (error) {
+      if (isCurrentDocumentOperation(operation)) showToast(error instanceof Error ? error.message : String(error), 'warning');
+    }
+  });
+  dom.sidebarLauncher.addEventListener('click', () => setPanel(dom.sidebar, !dom.sidebar.classList.contains('is-open')));
+  dom.inspectorLauncher.addEventListener('click', () => setPanel(dom.inspectorPanel, !dom.inspectorPanel.classList.contains('is-open')));
+  document.getElementById('close-sidebar').addEventListener('click', () => setPanel(dom.sidebar, false));
+  document.getElementById('close-inspector').addEventListener('click', () => setPanel(dom.inspectorPanel, false));
+  dom.searchShortcut.addEventListener('click', () => dom.search.focus());
+  document.addEventListener('keydown', (event) => {
+    if (event.key === '/' && document.activeElement !== dom.search) {
+      event.preventDefault();
+      dom.search.focus();
+    }
   });
 }
 
