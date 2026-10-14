@@ -1,4 +1,4 @@
-# CodeMesh visual design research
+# CodeWeb visual design research
 
 Reviewed 12 October 2026. These are established references, not a worldwide ranking. The application recommendations are design judgments; they still need user testing.
 

@@ -1,8 +1,8 @@
-# CodeMesh architecture
+# CodeWeb architecture
 
 See how your code fits together.
 
-![CodeMesh architecture](assets/codemesh-architecture.svg)
+![CodeWeb architecture](assets/codeweb-architecture.svg)
 
 Source folders pass through static extraction; compatible graph JSON loads directly into the graph. View settings stay separate from graph data. Graph JSON preserves extracted data, view JSON saves presentation settings, and SVG captures the diagram.
 

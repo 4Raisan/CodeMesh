@@ -1,8 +1,8 @@
-# Contributing to CodeMesh
+# Contributing to CodeWeb
 
 Use Node.js 22 or later. No dependencies need installing.
 
-1. Edit the source in `app/`; do not edit `release/CodeMesh.html` by hand.
+1. Edit the source in `app/`; do not edit `release/CodeWeb.html` by hand.
 2. Run `npm --prefix app run lint`, `npm --prefix app run check`, and `npm --prefix app test`.
 3. Run `npm --prefix app run build:standalone` and include the rebuilt release with source changes.
 4. Check the affected interactions in a browser and describe your validation in the pull request.
