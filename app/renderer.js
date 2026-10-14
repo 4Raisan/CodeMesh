@@ -38,146 +38,162 @@ function truncate(value, maxLength) {
 }
 
 export class GraphRenderer {
-  constructor(svg, callbacks = {}) {
-    this.svg = svg;
-    this.callbacks = callbacks;
-    this.document = null;
-    this.indexes = createIndexes({ nodes: [], edges: [] });
-    this.view = { ...DEFAULT_VIEW, activeKinds: new Set(), activeGroups: new Set(), activeEdgeKinds: new Set(), positions: {} };
-    this.positions = {};
-    this.layout = {};
-    this.layoutKey = null;
-    this.edgeOffsets = new Map();
-    this.edgeRoutes = new Map();
-    this.edgeObstacles = [];
-    this.visibleNodeIds = new Set();
-    this.visibleEdgeIds = new Set();
-    this.drag = null;
-    this.frame = null;
-    this.root = null;
-    this.edgeLayer = null;
-    this.nodeLayer = null;
-    this.boundHandlers = {};
-    this.setup();
-  }
-
-  setup() {
-    this.svg.replaceChildren();
-    this.svg.setAttribute('role', 'application');
-    this.svg.setAttribute('tabindex', '0');
-    this.svg.setAttribute('aria-label', 'Interactive codebase knowledge graph');
-    const defs = createSvg('defs');
-    this.root = createSvg('g', { class: 'kg-map-viewport' });
-    this.layerGuides = createSvg('g', { class: 'kg-layer-guides', 'aria-hidden': 'true', 'pointer-events': 'none' });
-    this.edgeLayer = createSvg('g', { class: 'kg-map-edges', 'aria-hidden': 'true' });
-    this.nodeLayer = createSvg('g', { class: 'kg-map-nodes' });
-    this.layerLabels = createSvg('g', { class: 'kg-layer-labels', 'aria-hidden': 'true', 'pointer-events': 'none' });
-    this.root.append(this.layerGuides, this.edgeLayer, this.layerLabels, this.nodeLayer);
-    this.svg.append(defs, this.root);
-    this.boundHandlers.pointerDown = (event) => this.onPointerDown(event);
-    this.boundHandlers.pointerMove = (event) => this.onPointerMove(event);
-    this.boundHandlers.pointerUp = (event) => this.onPointerUp(event);
-    this.boundHandlers.pointerCancel = () => this.onPointerCancel();
-    this.boundHandlers.wheel = (event) => this.onWheel(event);
-    this.boundHandlers.keyDown = (event) => this.onKeyDown(event);
-    this.boundHandlers.resize = () => {
-      this.scheduleRender();
-      if (this.document) this.fit();
-    };
-    this.svg.addEventListener('pointerdown', this.boundHandlers.pointerDown);
-    this.svg.addEventListener('pointermove', this.boundHandlers.pointerMove);
-    this.svg.addEventListener('pointerup', this.boundHandlers.pointerUp);
-    this.svg.addEventListener('pointercancel', this.boundHandlers.pointerCancel);
-    this.svg.addEventListener('wheel', this.boundHandlers.wheel, { passive: false });
-    this.svg.addEventListener('keydown', this.boundHandlers.keyDown);
-    window.addEventListener('resize', this.boundHandlers.resize);
-  }
-
-  setDocument(document) {
-    this.document = document;
-    this.indexes = createIndexes(document);
-    this.layoutKey = null;
-    this.edgeOffsets.clear();
-    const pairs = new Map();
-    for (const edge of document.edges) {
-      const key = JSON.stringify([edge.source, edge.target]);
-      if (!pairs.has(key)) pairs.set(key, []);
-      pairs.get(key).push(edge.id);
+  render() {
+    if (!this.document) return;
+    const size = this.getSize();
+    this.svg.setAttribute('viewBox', `0 0 ${size.width} ${size.height}`);
+    this.visibleNodeIds = getVisibleNodeIds(this.document, this.view, this.indexes, this.callbacks.visibleLimit ?? this.document.nodes.length);
+    // Idle visibility controls do not remove relationships from the layout.
+    this.visibleEdgeIds = getVisibleEdgeIds(this.document, { ...this.view, showInferred: true }, this.visibleNodeIds, this.indexes);
+    const visibleNodes = this.document.nodes.filter((node) => this.visibleNodeIds.has(node.id));
+    const layoutKey = JSON.stringify([visibleNodes.map(node => node.id), [...this.visibleEdgeIds], this.positions, this.view.layoutSpacing, this.view.layoutMode, this.view.nodeScale, this.view.labelScale, this.view.linkDistance, this.view.repulsion, this.view.groupOffsets, this.view.areaNameSize]);
+    if (layoutKey !== this.layoutKey) {
+      this.layout = computeLayout(this.document, { nodes: visibleNodes, edges: this.document.edges.filter(edge => this.visibleEdgeIds.has(edge.id)), positions: this.positions, indexes: this.indexes, spacing: this.view.layoutSpacing, mode: this.view.layoutMode, labelScale: this.view.labelScale, nodeScale: this.view.nodeScale, linkDistance: this.view.linkDistance, repulsion: this.view.repulsion, areaNameSize: this.view.areaNameSize });
+      if (this.view.layoutMode === 'grid') for (const node of visibleNodes) {
+        const offset = this.view.groupOffsets?.[getArchitectureLayer(node)];
+        if (offset && Number.isFinite(offset.x) && Number.isFinite(offset.y)) {
+          this.layout[node.id].x += offset.x;
+          this.layout[node.id].y += offset.y;
+        }
+      }
+      this.layoutKey = layoutKey;
+      this.edgeRoutes.clear();
+      this.edgeObstacles = visibleNodes.map(node => ({ id: node.id, position: this.layout[node.id], geometry: getNodeGeometry(node, { nodeScale: this.view.nodeScale, labelScale: this.view.labelScale }) }));
     }
-    for (const ids of pairs.values()) ids.forEach((id, index) => this.edgeOffsets.set(id, index * 22));
-    this.view = { ...this.view, selectedId: null, search: '', focusIds: null, positions: clonePositions(document?.positions) };
-    this.positions = clonePositions(document?.positions);
-    this.scheduleRender();
-  }
-
-  setView(view) {
-    const next = { ...this.view, ...(view ?? {}) };
-    next.activeKinds = setFrom(next.activeKinds);
-    next.activeGroups = setFrom(next.activeGroups);
-    next.activeEdgeKinds = setFrom(next.activeEdgeKinds);
-    next.focusIds = next.focusIds instanceof Set || Array.isArray(next.focusIds) ? next.focusIds : null;
-    next.layoutSpacing = clamp(next.layoutSpacing, 1, 0.65, 1.6);
-    next.layoutMode = ['layered', 'auto', 'force', 'grid'].includes(next.layoutMode) ? next.layoutMode : 'layered';
-    next.nodeScale = clamp(next.nodeScale, 1, 0.7, 1.6);
-    next.labelScale = clamp(next.labelScale, 1, 0.7, 1.6);
-    next.edgeOpacity = clamp(next.edgeOpacity, 0.85, 0, 1);
-    next.solidWidth = clamp(next.solidWidth, 2.2, 0.1, 6);
-    next.dashedWidth = clamp(next.dashedWidth, 2.2, 0.1, 6);
-    next.edgeLabelMode = ['light', 'active', 'always', 'off'].includes(next.edgeLabelMode) ? next.edgeLabelMode : 'light';
-    next.backgroundColor = /^#[0-9a-f]{6}$/i.test(next.backgroundColor) ? next.backgroundColor : '#0a1424';
-    next.animationEnabled = next.animationEnabled !== false;
-    next.animationSpeed = clamp(next.animationSpeed, 1, 0.25, 2);
-    next.nodeLimit = clamp(next.nodeLimit, 650, 50, 650);
-    next.isolationMode = ['all', 'connected', 'isolated'].includes(next.isolationMode) ? next.isolationMode : 'all';
-    next.showInferred = next.showInferred !== false;
-    next.linkDistance = clamp(next.linkDistance, 180, 0, 1500);
-    next.repulsion = clamp(next.repulsion, 1, -10, 10);
-    next.scale = clamp(next.scale, 1, 0.08, 3);
-    next.x = Number.isFinite(next.x) ? next.x : 0;
-    next.y = Number.isFinite(next.y) ? next.y : 0;
-    this.positions = next.positions ? clonePositions(next.positions) : clonePositions(this.positions);
-    next.positions = this.positions;
-    this.view = next;
-    this.scheduleRender();
-  }
-
-  getView() {
-    return {
-      ...this.view,
-      activeKinds: new Set(this.view.activeKinds),
-      activeGroups: new Set(this.view.activeGroups),
-      activeEdgeKinds: new Set(this.view.activeEdgeKinds),
-      focusIds: this.view.focusIds ? new Set(this.view.focusIds) : null,
-      positions: clonePositions(this.positions)
-    };
-  }
-
-  getSize() {
-    const rect = this.svg.getBoundingClientRect();
-    return {
-      width: rect.width || this.svg.clientWidth || window.innerWidth || 1000,
-      height: rect.height || this.svg.clientHeight || window.innerHeight || 700
-    };
-  }
-
-  scheduleRender() {
-    if (this.frame !== null) return;
-    this.frame = window.requestAnimationFrame(() => {
-      this.frame = null;
-      this.render();
+    this.svg.style.setProperty('--kg-motion-duration', `${Math.max(0.45, 3.2 / this.view.animationSpeed)}s`);
+    this.svg.style.backgroundColor = this.view.backgroundColor === '#0c1220' ? 'transparent' : this.view.backgroundColor;
+    if (this.view.animationEnabled) this.svg.classList.remove('motion-paused');
+    else this.svg.classList.add('motion-paused');
+    this.edgeLayer.replaceChildren();
+    this.edgeLabelPlacements = [];
+    this.nodeLayer.replaceChildren();
+    this.layerGuides.replaceChildren();
+    this.layerLabels.replaceChildren();
+    if (['auto', 'layered'].includes(this.view.layoutMode)) {
+      const rings = new Map();
+      for (const node of visibleNodes) {
+        const p = this.layout[node.id];
+        const radius = Math.round(Math.hypot(p.x, p.y));
+        const key = getArchitectureLayer(node);
+        if (!rings.has(key)) rings.set(key, { radii: [], angles: [], name: key, color: getNodeColor(node) });
+        rings.get(key).radii.push(radius);
+        rings.get(key).angles.push((Math.atan2(p.y, p.x) + Math.PI * 2) % (Math.PI * 2));
+      }
+      for (const ring of rings.values()) {
+        ring.radii.sort((a, b) => a - b);
+        ring.radius = this.layout.layerRadii?.[ring.name] ?? ring.radii[Math.floor(ring.radii.length / 2)];
+        // Follow the ring in its largest gap, using the same world-space scale
+        // as node text instead of growing headings when the graph zooms out.
+        ring.angles.sort((a, b) => a - b);
+        let gap = -1;
+        let center = -Math.PI / 2;
+        ring.angles.forEach((angle, index) => {
+          const next = ring.angles[(index + 1) % ring.angles.length] + (index === ring.angles.length - 1 ? Math.PI * 2 : 0);
+          if (next - angle > gap) { gap = next - angle; center = (angle + next) / 2; }
+        });
+        const fontSize = (this.view.areaNameSize ?? 23) * this.view.nodeScale * this.view.labelScale;
+        const measure = createSvg('text', { 'font-size': fontSize, 'font-family': 'system-ui,sans-serif', 'font-weight': 500, visibility: 'hidden' });
+        measure.textContent = ring.name;
+        this.layerGuides.append(measure);
+        const textWidth = measure.getComputedTextLength?.() || ring.name.length * fontSize * 0.6;
+        measure.remove?.();
+        const span = Math.min(Math.PI, (textWidth + 10) / Math.max(ring.radius, 1));
+        const obstacles = visibleNodes.map(node => ({ p: this.layout[node.id], g: getNodeGeometry(node, { nodeScale: this.view.nodeScale, labelScale: this.view.labelScale }) }));
+        let bestHits = Infinity;
+        let bestCenter = -Math.PI / 2;
+        for (let attempt = 0; attempt < 72; attempt++) {
+          const step = Math.ceil(attempt / 2) * Math.PI / 216;
+          const candidate = -Math.PI / 2 + (attempt % 2 === 0 ? step : -step);
+          let hits = 0;
+          for (let sample = 0; sample <= 16; sample++) {
+            const angle = candidate + (sample / 16 - 0.5) * span;
+            const x = Math.cos(angle) * ring.radius, y = Math.sin(angle) * ring.radius;
+            for (const { p, g } of obstacles) {
+              if (Math.abs(x - p.x) < g.width / 2 + fontSize && Math.abs(y - p.y) < g.height / 2 + fontSize) hits++;
+            }
+          }
+          if (hits < bestHits) { bestHits = hits; bestCenter = candidate; }
+          if (hits === 0) break;
+        }
+        center = this.layout.layerRadii ? -Math.PI / 2 : bestCenter;
+        const gapStart = center - span / 2, gapEnd = center + span / 2;
+        this.layerGuides.append(createSvg('path', {
+          class: 'kg-layer-ring',
+          d: `M ${Math.cos(gapEnd) * ring.radius} ${Math.sin(gapEnd) * ring.radius} A ${ring.radius} ${ring.radius} 0 1 1 ${Math.cos(gapStart) * ring.radius} ${Math.sin(gapStart) * ring.radius}`,
+          fill: 'none', stroke: ring.color, 'stroke-opacity': this.view.dottedOpacity ?? 0.85, 'stroke-width': this.view.areaWidth ?? 1.5, 'stroke-dasharray': '0 6', 'stroke-linecap': 'round'
+        }));
+        const reverse = Math.sin(center) > 0;
+        const start = center + (reverse ? span / 2 : -span / 2);
+        const end = center + (reverse ? -span / 2 : span / 2);
+        const id = `kg-layer-label-${this.layerGuides.children.length}`;
+        const arc = createSvg('path', { id, d: `M ${Math.cos(start) * ring.radius} ${Math.sin(start) * ring.radius} A ${ring.radius} ${ring.radius} 0 0 ${reverse ? 0 : 1} ${Math.cos(end) * ring.radius} ${Math.sin(end) * ring.radius}`, fill: 'none', stroke: 'none' });
+        const label = createSvg('text', { 'dominant-baseline': 'central', fill: ring.color, 'text-anchor': 'middle', 'font-size': fontSize, 'font-family': 'system-ui,sans-serif', 'font-weight': 500 });
+        const textPath = createSvg('textPath', { href: `#${id}`, startOffset: '50%' });
+        textPath.textContent = ring.name;
+        label.append(textPath);
+        this.layerGuides.append(arc);
+        this.layerLabels.append(label);
+      }
+    }
+    if (this.view.layoutMode === 'grid') {
+      const groups = new Map();
+      for (const node of visibleNodes) {
+        const name = getArchitectureLayer(node);
+        if (!groups.has(name)) groups.set(name, []);
+        groups.get(name).push(node);
+      }
+      for (const [name, nodes] of groups) {
+        const bounds = nodes.map(node => {
+          const p = this.layout[node.id];
+          const g = getNodeGeometry(node, { nodeScale: this.view.nodeScale, labelScale: this.view.labelScale });
+          return { left: p.x - g.width / 2, right: p.x + g.width / 2, top: p.y - g.height / 2, bottom: p.y + g.height / 2 };
+        });
+        let left = Math.min(...bounds.map(b => b.left)) - 28;
+        const headingWidth = `${name} · ${nodes.length}`.length * 11 * this.view.labelScale;
+        let right = Math.max(...bounds.map(b => b.right)) + 28;
+        const extraWidth = Math.max(0, headingWidth + 40 - (right - left));
+        left -= extraWidth / 2;
+        right += extraWidth / 2;
+        const top = Math.min(...bounds.map(b => b.top)) - 64;
+        const bottom = Math.max(...bounds.map(b => b.bottom)) + 28;
+        const color = getNodeColor(nodes[0]);
+        this.layerGuides.append(createSvg('rect', { x: left, y: top, width: right - left, height: bottom - top, rx: 14, fill: '#111b2d', 'fill-opacity': 0.92, stroke: color, 'stroke-opacity': 0.45, 'stroke-width': 1, 'vector-effect': 'non-scaling-stroke' }));
+        const heading = createSvg('text', { x: left + 20, y: top + 30, fill: color, 'font-size': 18 * this.view.labelScale, 'font-family': 'system-ui,sans-serif', 'font-weight': 600 });
+        heading.textContent = `${name} · ${nodes.length}`;
+        heading.setAttribute('data-group-name', name);
+        heading.setAttribute('pointer-events', 'all');
+        heading.style.cursor = 'grab';
+        const handle = createSvg('rect', { x: left, y: top, width: right - left, height: 46, fill: 'transparent', 'data-group-name': name, 'pointer-events': 'all' });
+        handle.style.cursor = 'grab';
+        this.layerLabels.append(handle);
+        this.layerLabels.append(heading);
+      }
+    }
+    const drawnEdges = this.document.edges.filter(edge => {
+      if (!this.visibleEdgeIds.has(edge.id)) return false;
+      const selectedConnection = this.view.selectedId && (edge.source === this.view.selectedId || edge.target === this.view.selectedId);
+      if (selectedConnection) return true;
+      if (this.view.selectedId) return false;
+      if (this.view.edgeDisplay === 'selected') return false;
+      return edge.inferred ? this.view.showInferred !== false : this.view.showSolid !== false;
+    });
+    for (const edge of drawnEdges) this.drawEdge(edge);
+    const selectedId = this.view.selectedId;
+    const neighbors = this.getNeighborIds(selectedId);
+    for (const [index, node] of visibleNodes.entries()) this.drawNode(node, neighbors, index);
+    this.applyTransform();
+    this.suppressEdgeLabelCollisions();
+    this.callbacks.onVisibility?.({
+      layers: [...new Map(visibleNodes.map(node => [getArchitectureLayer(node), { name: getArchitectureLayer(node), color: getNodeColor(node) }])).values()],
+      visibleNodes: this.visibleNodeIds.size,
+      totalNodes: this.document.nodes.length,
+      visibleEdges: drawnEdges.length,
+      totalEdges: this.document.edges.length,
+      truncated: this.visibleNodeIds.size < getVisibleNodeIds(this.document, this.view, this.indexes, Infinity).size
     });
   }
 
-  destroy() {
-    if (this.frame !== null) window.cancelAnimationFrame(this.frame);
-    this.frame = null;
-    this.svg.removeEventListener('pointerdown', this.boundHandlers.pointerDown);
-    this.svg.removeEventListener('pointermove', this.boundHandlers.pointerMove);
-    this.svg.removeEventListener('pointerup', this.boundHandlers.pointerUp);
-    this.svg.removeEventListener('pointercancel', this.boundHandlers.pointerCancel);
-    this.svg.removeEventListener('wheel', this.boundHandlers.wheel);
-    this.svg.removeEventListener('keydown', this.boundHandlers.keyDown);
-    window.removeEventListener('resize', this.boundHandlers.resize);
-    this.svg.replaceChildren();
+  applyTransform() {
+    this.root.setAttribute('transform', `translate(${this.view.x} ${this.view.y}) scale(${this.view.scale})`);
   }
 }
