@@ -91,9 +91,13 @@ let renderer;
 
 let toastTimer;
 
+let documentSequence = 0;
+
 let importStartedAt = Date.now();
 
 let projectNoticeTimer;
+
+let serverAutoPromise = null;
 
 function beginDocumentOperation() {
   documentSequence += 1;
@@ -269,6 +273,121 @@ function formatNumber(value) {
   return new Intl.NumberFormat().format(value ?? 0);
 }
 
+const serverProjectFileNames = new Set(['package.json', 'tsconfig.json', 'jsconfig.json', 'dockerfile', 'makefile', 'readme.md', 'license']);
+
+function isServerTextCandidate(path) {
+  const name = path.split('/').pop()?.toLowerCase() ?? '';
+  if (name === 'kg-map.html' || name === 'kgmap.html' || name === 'codemesh.html') return false;
+  if (serverProjectFileNames.has(name)) return true;
+  return /\.(?:html?|js|jsx|mjs|cjs|ts|tsx|mts|cts|py|pyw|go|rs|java|kt|kts|cs|rb|php|swift|c|h|cc|cpp|cxx|hpp|hh|css|scss|sass|less|json|jsonc|yaml|yml|toml|xml|graphql|gql|sql|prisma|md|mdx|sh|bash|zsh|ps1|bat|cmd|vue|svelte|astro)$/i.test(name);
+}
+
+async function readServerListing(url) {
+  try {
+    const response = await fetch(url, { cache: 'no-store', headers: { Accept: 'text/html' } });
+    if (!response.ok || (response.url && response.url !== url.href) || !String(response.headers.get('content-type') ?? '').includes('text/html')) return null;
+    const html = await response.text();
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
+    const links = [...parsed.querySelectorAll('a[href]')].map((link) => link.getAttribute('href')).filter(Boolean);
+    const looksLikeListing = links.some((href) => !/^(?:https?:|\/\/|#|\?)/i.test(href) && (href.endsWith('/') || isServerTextCandidate(href)));
+    if (!looksLikeListing) return null;
+    return { links: [...new Set(links)], baseUrl: url };
+  } catch {
+    return null;
+  }
+}
+
+async function crawlServerDirectory(listing) {
+  const queue = [{ url: listing.baseUrl, path: '' }];
+  const visited = new Set([listing.baseUrl.href]);
+  const records = [];
+  const seenFiles = new Set();
+  let fileCount = 0;
+  let totalBytes = 0;
+  while (queue.length > 0 && fileCount < 5000 && totalBytes < 40 * 1024 * 1024) {
+    const current = queue.shift();
+    const childListing = current.url.href === listing.baseUrl.href ? listing : await readServerListing(current.url);
+    if (!childListing) continue;
+    for (const href of childListing.links) {
+      if (href.startsWith('?') || href.startsWith('#') || href === '../' || href === '/') continue;
+      let resolved;
+      try {
+        resolved = new URL(href, current.url);
+      } catch {
+        continue;
+      }
+      if (resolved.origin !== listing.baseUrl.origin || resolved.search || resolved.hash || !resolved.pathname.startsWith(current.url.pathname) || !resolved.pathname.startsWith(listing.baseUrl.pathname)) continue;
+      let relativePath;
+      try { relativePath = decodeURIComponent(resolved.pathname.slice(listing.baseUrl.pathname.length)); } catch { continue; }
+      if (!relativePath || relativePath.split('/').some(part => part === '..' || part === '.') || relativePath.includes('\\')) continue;
+      if (shouldIgnorePath(relativePath)) continue;
+      if (resolved.pathname.endsWith('/')) {
+        if (!visited.has(resolved.href)) {
+          visited.add(resolved.href);
+          queue.push({ url: resolved, path: relativePath });
+        }
+        continue;
+      }
+      if (!isServerTextCandidate(relativePath) || seenFiles.has(resolved.href)) continue;
+      seenFiles.add(resolved.href);
+      try {
+        const response = await fetch(resolved, { cache: 'no-store' });
+        if (!response.ok || (response.url && response.url !== resolved.href)) continue;
+        if (Number(response.headers.get('content-length')) > 2 * 1024 * 1024) continue;
+        const text = await response.text();
+        const bytes = new TextEncoder().encode(text).byteLength;
+        if (bytes > 2 * 1024 * 1024 || text.includes('\0')) continue;
+        if (totalBytes + bytes > 40 * 1024 * 1024) break;
+        totalBytes += bytes;
+        fileCount += 1;
+        records.push({ path: relativePath, text, bytes });
+      } catch {
+        continue;
+      }
+    }
+  }
+  return records;
+}
+
+async function discoverServerProject() {
+  if (window.location.protocol === 'file:') return null;
+  // The HTML directory is the boundary. Never probe parents or import an arbitrary
+  // adjacent graph export in place of the source tree.
+  const baseUrl = new URL('./', window.location.href);
+  const listing = await readServerListing(baseUrl);
+  if (!listing) return null;
+  const records = await crawlServerDirectory(listing);
+  return records.length > 0 ? { type: 'codebase', records, source: 'auto · this folder' } : null;
+}
+
+async function autoLoadServerProject(notify = false, operation = documentSequence) {
+  if (serverAutoPromise) return serverAutoPromise;
+  const promise = (async () => {
+    const discovered = await discoverServerProject();
+    if (!discovered) return false;
+    if (!isCurrentDocumentOperation(operation)) return false;
+    if (discovered.type === 'graph') {
+      return adoptDocument(discovered.value, discovered.source, operation);
+    }
+    const parsed = await parseCodebase(discovered.records, { stripCommonRoot: false, name: discovered.source });
+    if (parsed.cancelled) return false;
+    if (parsed.error) throw parsed.error;
+    if (parsed.document.nodes.length === 0) return false;
+    if (!adoptDocument(parsed.document, discovered.source, operation)) return false;
+    if (notify) showToast(`Auto-discovered ${formatNumber(parsed.document.nodes.length)} nodes from this project.`);
+    return true;
+  })();
+  serverAutoPromise = promise;
+  try {
+    const result = await promise;
+    if (!result) serverAutoPromise = null;
+    return result;
+  } catch (error) {
+    serverAutoPromise = null;
+    throw error;
+  }
+}
+
 function readTextFile(file) {
   if (typeof file.text === 'function') return file.text();
   return new Promise((resolve, reject) => {
@@ -277,6 +396,10 @@ function readTextFile(file) {
     reader.onerror = () => reject(reader.error ?? new Error('Unable to read file.'));
     reader.readAsText(file);
   });
+}
+
+function joinEntryPath(parent, name) {
+  return parent ? `${parent}/${name}` : name;
 }
 
 function readDirectoryEntries(directory) {
