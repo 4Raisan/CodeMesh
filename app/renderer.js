@@ -47,6 +47,16 @@ function clonePositions(positions) {
   return result;
 }
 
+function setFrom(value) {
+  if (value instanceof Set) return new Set(value);
+  if (Array.isArray(value)) return new Set(value);
+  return new Set();
+}
+
+function clamp(value, fallback, minimum, maximum) {
+  return Number.isFinite(value) ? Math.min(maximum, Math.max(minimum, value)) : fallback;
+}
+
 function shouldShowEdgeLabel(mode, active) {
   if (mode === 'always') return true;
   if (mode === 'active') return Boolean(active);
@@ -55,50 +65,39 @@ function shouldShowEdgeLabel(mode, active) {
 }
 
 export class GraphRenderer {
-  focusNode(nodeId) {
-    const position = this.layout[nodeId];
-    if (!position) return;
+  zoomBy(factor) {
     const size = this.getSize();
-    const scale = Math.max(0.7, Math.min(1.8, this.view.scale));
-    this.view.scale = scale;
-    this.view.x = size.width / 2 - position.x * scale;
-    this.view.y = size.height / 2 - position.y * scale;
+    this.zoomAt(size.width / 2, size.height / 2, factor);
+  }
+
+  zoomAt(clientX, clientY, factor) {
+    const size = this.getSize();
+    const rect = this.svg.getBoundingClientRect();
+    const localX = ((clientX - rect.left) / Math.max(rect.width, 1)) * size.width;
+    const localY = ((clientY - rect.top) / Math.max(rect.height, 1)) * size.height;
+    const oldScale = this.view.scale;
+    const newScale = Math.max(0.12, Math.min(3, oldScale * factor));
+    const worldX = (localX - this.view.x) / oldScale;
+    const worldY = (localY - this.view.y) / oldScale;
+    this.view.scale = newScale;
+    this.view.x = localX - worldX * newScale;
+    this.view.y = localY - worldY * newScale;
     this.applyTransform();
-    this.callbacks.onViewChange?.(this.getView());
-  }
-
-  fit() {
-    this.render();
-    const bounds = getBounds(this.layout);
-    for (const node of this.document?.nodes ?? []) {
-      const position = this.layout[node.id];
-      if (!position) continue;
-      const geometry = getNodeGeometry(node, { nodeScale: this.view.nodeScale, labelScale: this.view.labelScale });
-      bounds.left = Math.min(bounds.left, position.x - geometry.width / 2);
-      bounds.right = Math.max(bounds.right, position.x + geometry.width / 2);
-      bounds.top = Math.min(bounds.top, position.y - (geometry.boxLike ? geometry.height / 2 : geometry.radius + geometry.fontSize + 18));
-      bounds.bottom = Math.max(bounds.bottom, position.y + (geometry.boxLike ? geometry.height / 2 : geometry.radius));
-    }
-    bounds.width = bounds.right - bounds.left;
-    bounds.height = bounds.bottom - bounds.top;
-    if (!Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) return;
-    const size = this.getSize();
-    const padding = Math.max(55, Math.min(90, Math.min(size.width, size.height) * 0.1));
-    const availableWidth = Math.max(120, size.width - padding * 2);
-    const availableHeight = Math.max(120, size.height - padding * 2);
-    const scale = Math.max(0.08, Math.min(1.35, Math.min(availableWidth / Math.max(bounds.width, 1), availableHeight / Math.max(bounds.height, 1))));
-    this.view.scale = scale;
-    this.view.x = size.width / 2 - (bounds.left + bounds.width / 2) * scale;
-    this.view.y = size.height / 2 - (bounds.top + bounds.height / 2) * scale;
-    this.render();
-    this.callbacks.onViewChange?.(this.getView());
-  }
-
-  resetPositions() {
-    this.positions = {};
-    this.view.groupOffsets = {};
-    this.view.positions = this.positions;
     this.scheduleRender();
     this.callbacks.onViewChange?.(this.getView());
+  }
+
+  localPoint(event) {
+    const size = this.getSize();
+    const rect = this.svg.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / Math.max(rect.width, 1)) * size.width,
+      y: ((event.clientY - rect.top) / Math.max(rect.height, 1)) * size.height
+    };
+  }
+
+  worldPoint(event) {
+    const point = this.localPoint(event);
+    return { x: (point.x - this.view.x) / this.view.scale, y: (point.y - this.view.y) / this.view.scale };
   }
 }
