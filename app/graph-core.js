@@ -502,6 +502,103 @@ function groupRank(group) {
   return index === -1 ? GROUP_ORDER.length : index;
 }
 
+let nodeTextContext;
+
+export function getNodeGeometry(node, options = {}) {
+  if (node.layoutObstacle) return { ...node.layoutObstacle, boxLike: true, radius: 0 }; 
+  const nodeScale = options.nodeScale ?? 1;
+  const labelScale = options.labelScale ?? 1;
+  const boxLike = ['file', 'module', 'schema', 'configuration', 'route', 'model', 'external', 'unresolved', 'api-call'].includes(node.kind) || ['route', 'data', 'config', 'external', 'unresolved'].includes(node.group);
+  const rawTitle = node.source?.path === node.label ? node.label.split('/').pop() : node.label;
+  const title = rawTitle.length > 34 ? `${rawTitle.slice(0, 33)}…` : rawTitle;
+  const types = { file: 'Code file', module: 'Code file', schema: 'Schema', configuration: 'Configuration', route: 'Endpoint', 'api-call': 'API call', model: 'Data model', external: 'Dependency', unresolved: 'Unresolved' };
+  const subtitle = node.kind === 'configuration' && node.source?.path.includes('/') ? `${node.source.path.split('/')[0]} · Configuration` : types[node.kind] ?? getNodeKindLabel(node);
+  const radius = Math.min(22, (8 + Math.sqrt(options.degree ?? 0) * 1.8) * nodeScale);
+  const textWidth = (text, fontSize, weight) => {
+    const context = nodeTextContext ??= globalThis.document?.createElement?.('canvas')?.getContext?.('2d');
+    if (context) {
+      context.font = `${weight} ${fontSize}px Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`;
+      return context.measureText(text).width;
+    }
+    return [...text].reduce((sum, char) => sum + (/[ilI1.,:;!'|]/.test(char) ? 0.30 : /[MW@%]/.test(char) ? 0.90 : /[A-Z]/.test(char) ? 0.66 : 0.56) * fontSize, 0);
+  };
+  const width = Math.max(textWidth(title, 13 * labelScale, 600), textWidth(subtitle, 10, 400)) * nodeScale + 24 * nodeScale;
+  const height = 52 * nodeScale * Math.max(1, labelScale);
+  return { boxLike, title, subtitle, width, height, radius, fontSize: 13 * nodeScale * labelScale };
+}
+
+function resolveNodeCollisions(result, nodes, savedPositions, spacing, labelScale, nodeScale) {
+  const geometries = new Map(nodes.map(node => [node.id, getNodeGeometry(node, { labelScale, nodeScale })]));
+  const fixed = new Set(nodes.filter((node) => {
+    const saved = savedPositions[node.id];
+    return isRecord(saved) && finiteNumber(saved.x) !== undefined && finiteNumber(saved.y) !== undefined;
+  }).map(node => node.id));
+  for (let pass = 0; pass < 32; pass += 1) {
+    let changed = false;
+    for (let leftIndex = 0; leftIndex < nodes.length; leftIndex += 1) {
+      const leftNode = nodes[leftIndex];
+      const left = result[leftNode.id];
+      if (!left) continue;
+      for (let rightIndex = leftIndex + 1; rightIndex < nodes.length; rightIndex += 1) {
+        const rightNode = nodes[rightIndex];
+        if (fixed.has(leftNode.id) && fixed.has(rightNode.id)) continue;
+        const right = result[rightNode.id];
+        if (!right) continue;
+        const dx = left.x - right.x;
+        const dy = left.y - right.y;
+        const a = geometries.get(leftNode.id);
+        const b = geometries.get(rightNode.id);
+        const minX = (a.width + b.width) / 2 + 20 * spacing;
+        const minY = ((a.boxLike ? a.height : a.radius * 2 + a.fontSize + 24) + (b.boxLike ? b.height : b.radius * 2 + b.fontSize + 24)) / 2 + 24 * spacing;
+        const overlapX = minX - Math.abs(dx);
+        const overlapY = minY - Math.abs(dy);
+        if (overlapX <= 0 || overlapY <= 0) continue;
+        const share = fixed.has(leftNode.id) || fixed.has(rightNode.id) ? 1 : 2;
+        const pushX = overlapX < overlapY ? (Math.sign(dx) || 1) * (overlapX + 0.1) / share : 0;
+        const pushY = overlapX < overlapY ? 0 : (Math.sign(dy) || 1) * (overlapY + 0.1) / share;
+        if (!fixed.has(leftNode.id)) { left.x += pushX; left.y += pushY; }
+        if (!fixed.has(rightNode.id)) { right.x -= pushX; right.y -= pushY; }
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  // Relaxation can leave a few collisions in a dense hub. Place remaining free
+  // cards in the nearest clear slot without disturbing saved/pinned positions.
+  const placed = nodes.filter(node => fixed.has(node.id));
+  const collides = (node, position) => placed.some(other => {
+    const a = geometries.get(node.id);
+    const b = geometries.get(other.id);
+    const otherPosition = result[other.id];
+    const heightA = a.boxLike ? a.height : a.radius * 2 + a.fontSize + 24;
+    const heightB = b.boxLike ? b.height : b.radius * 2 + b.fontSize + 24;
+    return Math.abs(position.x - otherPosition.x) < (a.width + b.width) / 2 + 16 * spacing && Math.abs(position.y - otherPosition.y) < (heightA + heightB) / 2 + 20 * spacing;
+  });
+  for (const node of nodes) {
+    if (fixed.has(node.id)) continue;
+    const position = result[node.id];
+    if (collides(node, position)) {
+      const geometry = geometries.get(node.id);
+      const original = { ...position };
+      const stepX = geometry.width / 2 + 20 * spacing;
+      const stepY = geometry.height + 24 * spacing;
+      let found = false;
+      for (let ring = 1; ring <= nodes.length + 1 && !found; ring += 1) {
+        const offsets = [[0, ring * stepY], [0, -ring * stepY], [ring * stepX, 0], [-ring * stepX, 0], [ring * stepX, ring * stepY], [-ring * stepX, ring * stepY], [ring * stepX, -ring * stepY], [-ring * stepX, -ring * stepY]];
+        for (const [x, y] of offsets) {
+          const candidate = { x: original.x + x, y: original.y + y };
+          if (collides(node, candidate)) continue;
+          result[node.id] = candidate;
+          found = true;
+          break;
+        }
+      }
+    }
+    placed.push(node);
+  }
+  return result;
+}
+
 export function fingerprintDocument(document) {
   const text = [
     document?.schemaVersion ?? SCHEMA_VERSION,
