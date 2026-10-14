@@ -37,6 +37,16 @@ function truncate(value, maxLength) {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }
 
+function clonePositions(positions) {
+  const result = {};
+  if (!isRecord(positions)) return result;
+  for (const [id, position] of Object.entries(positions)) {
+    if (!isRecord(position) || !Number.isFinite(position.x) || !Number.isFinite(position.y)) continue;
+    result[id] = { x: position.x, y: position.y, pinned: position.pinned === true };
+  }
+  return result;
+}
+
 function shouldShowEdgeLabel(mode, active) {
   if (mode === 'always') return true;
   if (mode === 'active') return Boolean(active);
@@ -45,29 +55,50 @@ function shouldShowEdgeLabel(mode, active) {
 }
 
 export class GraphRenderer {
-  getNeighborIds(nodeId) {
-    const result = new Set();
-    if (!nodeId) return result;
-    for (const edge of this.indexes.outgoing.get(nodeId) ?? []) result.add(edge.target);
-    for (const edge of this.indexes.incoming.get(nodeId) ?? []) result.add(edge.source);
-    return result;
+  focusNode(nodeId) {
+    const position = this.layout[nodeId];
+    if (!position) return;
+    const size = this.getSize();
+    const scale = Math.max(0.7, Math.min(1.8, this.view.scale));
+    this.view.scale = scale;
+    this.view.x = size.width / 2 - position.x * scale;
+    this.view.y = size.height / 2 - position.y * scale;
+    this.applyTransform();
+    this.callbacks.onViewChange?.(this.getView());
   }
 
-  selectNode(nodeId, focus = false) {
-    if (!this.document?.nodes.some((node) => node.id === nodeId)) return;
-    if (!this.visibleNodeIds.has(nodeId)) {
-      this.callbacks.onRequestReveal?.(nodeId);
-      this.render();
+  fit() {
+    this.render();
+    const bounds = getBounds(this.layout);
+    for (const node of this.document?.nodes ?? []) {
+      const position = this.layout[node.id];
+      if (!position) continue;
+      const geometry = getNodeGeometry(node, { nodeScale: this.view.nodeScale, labelScale: this.view.labelScale });
+      bounds.left = Math.min(bounds.left, position.x - geometry.width / 2);
+      bounds.right = Math.max(bounds.right, position.x + geometry.width / 2);
+      bounds.top = Math.min(bounds.top, position.y - (geometry.boxLike ? geometry.height / 2 : geometry.radius + geometry.fontSize + 18));
+      bounds.bottom = Math.max(bounds.bottom, position.y + (geometry.boxLike ? geometry.height / 2 : geometry.radius));
     }
-    this.view.selectedId = nodeId;
-    this.scheduleRender();
-    this.callbacks.onSelect?.(nodeId);
-    if (focus) this.focusNode(nodeId);
+    bounds.width = bounds.right - bounds.left;
+    bounds.height = bounds.bottom - bounds.top;
+    if (!Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) return;
+    const size = this.getSize();
+    const padding = Math.max(55, Math.min(90, Math.min(size.width, size.height) * 0.1));
+    const availableWidth = Math.max(120, size.width - padding * 2);
+    const availableHeight = Math.max(120, size.height - padding * 2);
+    const scale = Math.max(0.08, Math.min(1.35, Math.min(availableWidth / Math.max(bounds.width, 1), availableHeight / Math.max(bounds.height, 1))));
+    this.view.scale = scale;
+    this.view.x = size.width / 2 - (bounds.left + bounds.width / 2) * scale;
+    this.view.y = size.height / 2 - (bounds.top + bounds.height / 2) * scale;
+    this.render();
+    this.callbacks.onViewChange?.(this.getView());
   }
 
-  clearSelection() {
-    this.view.selectedId = null;
-    this.view.focusIds = null;
+  resetPositions() {
+    this.positions = {};
+    this.view.groupOffsets = {};
+    this.view.positions = this.positions;
     this.scheduleRender();
+    this.callbacks.onViewChange?.(this.getView());
   }
 }
