@@ -1,9 +1,32 @@
 export const SCHEMA_VERSION = 'codemesh/1';
+
 export const MAX_NODES = 10000;
+
 export const MAX_EDGES = 30000;
+
+export const DEFAULT_VISIBLE_NODE_LIMIT = 650;
+
+export const DEFAULT_COLORS = Object.freeze({
+  code: '#4f8cff',
+  ui: '#4f8cff',
+  route: '#52c8ab',
+  data: '#e6a84a',
+  test: '#32b8c6',
+  docs: '#f3c969',
+  config: '#a77bf3',
+  external: '#94a3b8',
+  unresolved: '#f97373',
+  other: '#8b9bb4'
+});
+
+const GROUP_ORDER = ['core', 'entrypoint', 'route', 'ui', 'code', 'service', 'data', 'test', 'docs', 'config', 'external', 'unresolved', 'other'];
+
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+
 const MAX_SERIALIZED_METADATA = 2000;
+
 const UNSERIALIZABLE_METADATA = '[unserializable]';
+
 const TRUNCATED_METADATA = '[truncated]';
 
 function isRecord(value) {
@@ -416,6 +439,67 @@ export function createIndexes(document) {
     degree.set(edge.target, degree.get(edge.target) + 1);
   }
   return { nodesById, incoming, outgoing, degree };
+}
+
+function setFrom(value) {
+  if (value instanceof Set) return value;
+  if (Array.isArray(value)) return new Set(value);
+  return new Set();
+}
+
+export function getNodeSearchText(node) {
+  return [node.label, node.id, node.kind, node.group, node.qualifiedName, node.source?.path, node.file, ...Object.values(node.metadata ?? {}).filter((value) => typeof value === 'string')]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+export function getVisibleNodeIds(document, viewState = {}, indexes = createIndexes(document), limit = DEFAULT_VISIBLE_NODE_LIMIT) {
+  const activeKinds = setFrom(viewState.activeKinds);
+  const activeGroups = setFrom(viewState.activeGroups);
+  const focusIds = setFrom(viewState.focusIds);
+  const search = String(viewState.search ?? '').trim().toLowerCase();
+  let candidates = (document.nodes ?? []).filter((node) => {
+    if (viewState.overviewMode === 'files' && !search && activeKinds.size === 0 && !['file', 'module', 'configuration', 'schema', 'documentation', 'test', 'model', 'enum'].includes(node.kind)) return false;
+    const isolated = (indexes.degree.get(node.id) ?? 0) === 0;
+    if (viewState.isolationMode === 'isolated' && !isolated) return false;
+    if (viewState.isolationMode === 'connected' && isolated) return false;
+    if (activeKinds.size > 0 && !activeKinds.has(node.kind)) return false;
+    if (activeGroups.size > 0 && !activeGroups.has(node.group)) return false;
+    if (search && !getNodeSearchText(node).includes(search)) return false;
+    return true;
+  });
+  if (focusIds.size > 0) candidates = candidates.filter((node) => focusIds.has(node.id));
+  if (candidates.length <= limit) return new Set(candidates.map((node) => node.id));
+  const prioritized = [...candidates].sort((left, right) => {
+    if (left.id === viewState.selectedId) return -1;
+    if (right.id === viewState.selectedId) return 1;
+    if (search) {
+      const leftMatch = getNodeSearchText(left).startsWith(search) ? 1 : 0;
+      const rightMatch = getNodeSearchText(right).startsWith(search) ? 1 : 0;
+      if (leftMatch !== rightMatch) return rightMatch - leftMatch;
+    }
+    const degreeDifference = (indexes.degree.get(right.id) ?? 0) - (indexes.degree.get(left.id) ?? 0);
+    return degreeDifference || left.id.localeCompare(right.id);
+  });
+  return new Set(prioritized.slice(0, limit).map((node) => node.id));
+}
+
+export function getVisibleEdgeIds(document, viewState = {}, visibleNodeIds = null, indexes = createIndexes(document)) {
+  const visible = visibleNodeIds ?? getVisibleNodeIds(document, viewState, indexes);
+  const activeEdgeKinds = setFrom(viewState.activeEdgeKinds);
+  const ids = new Set();
+  for (const edge of document.edges ?? []) {
+    if (viewState.showInferred === false && edge.inferred === true) continue;
+    if (activeEdgeKinds.size > 0 && !activeEdgeKinds.has(edge.kind)) continue;
+    if (visible.has(edge.source) && visible.has(edge.target)) ids.add(edge.id);
+  }
+  return ids;
+}
+
+function groupRank(group) {
+  const index = GROUP_ORDER.indexOf(group);
+  return index === -1 ? GROUP_ORDER.length : index;
 }
 
 export function fingerprintDocument(document) {
