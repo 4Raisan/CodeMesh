@@ -533,6 +533,94 @@ function getLocalView(document) {
   }
 }
 
+function updateStats() {
+  const document = state.document;
+  const coverageNote = document.coverage.partial ? ' · partial coverage' : '';
+  setText(dom.graphStats, `${formatNumber(document.nodes.length)} nodes · ${formatNumber(document.edges.length)} edges · ${document.repository.revision === 'unknown' ? 'unscoped revision' : document.repository.revision}${coverageNote}`);
+  const warningCount = document.diagnostics.filter((item) => item.severity !== 'info').length;
+  setText(dom.diagnostics, warningCount > 0 ? `${warningCount} import diagnostic${warningCount === 1 ? '' : 's'}` : 'No blocking diagnostics');
+  dom.diagnostics.classList.toggle('has-warning', warningCount > 0);
+}
+
+function updateFilterSummary() {
+  const active = state.view.activeKinds.size + state.view.activeGroups.size + state.view.activeEdgeKinds.size + (state.view.search ? 1 : 0) + (state.view.isolationMode !== 'all' ? 1 : 0) + (!state.view.showInferred ? 1 : 0);
+  setText(dom.filterSummary, active === 0 ? 'Showing all nodes' : `${active} filter${active === 1 ? '' : 's'} active`);
+  dom.searchClear.hidden = !state.view.search;
+  if (dom.search.value !== state.view.search) dom.search.value = state.view.search;
+}
+
+function renderFilterGroup(container, title, entries, activeSet, stateKey) {
+  container.replaceChildren();
+  const details = element('details');
+  details.open = stateKey === 'activeKinds';
+  const summary = element('summary', 'filter-summary-title', `${title} (${entries.length})`);
+  details.append(summary);
+  const list = element('div', 'filter-list');
+  for (const entry of entries) {
+    const label = element('label', 'filter-row');
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = activeSet.size === 0 || activeSet.has(entry.value);
+    input.addEventListener('change', () => {
+      const allValues = entries.map((item) => item.value);
+      const next = activeSet.size === 0 ? new Set(allValues) : new Set([...activeSet].filter(value => value !== '__none__'));
+      if (input.checked) next.add(entry.value);
+      else next.delete(entry.value);
+      if (next.size === allValues.length) state.view[stateKey] = new Set();
+      else state.view[stateKey] = next.size ? next : new Set(['__none__']);
+      state.view.focusIds = null;
+      syncView();
+    });
+    const text = element('span', 'filter-label', entry.label);
+    const count = element('span', 'filter-count', formatNumber(entry.count));
+    label.append(input, text, count);
+    list.append(label);
+  }
+  if (entries.length > 1) {
+    const clear = button('Select all', 'text-action', () => {
+      state.view[stateKey] = new Set();
+      state.view.focusIds = null;
+      syncView();
+    });
+    details.append(clear, list);
+  } else {
+    details.append(list);
+  }
+  container.append(details);
+}
+
+function renderFilters() {
+  const document = state.document;
+  const groups = new Map();
+  const kinds = new Map();
+  const edgeKinds = new Map();
+  for (const node of document.nodes) {
+    groups.set(node.group, (groups.get(node.group) ?? 0) + 1);
+    kinds.set(node.kind, (kinds.get(node.kind) ?? 0) + 1);
+  }
+  for (const edge of document.edges) edgeKinds.set(edge.kind, (edgeKinds.get(edge.kind) ?? 0) + 1);
+  const names = { file: 'Files', module: 'Code files', route: 'API endpoints', 'api-call': 'API calls', model: 'Data models', schema: 'Schemas', configuration: 'Configuration', external: 'Dependencies', unresolved: 'Unresolved imports', documentation: 'Documentation', test: 'Tests', IMPORTS: 'Imports', DEPENDS_ON: 'Dependencies', DEFINES: 'Definitions', EXPOSES: 'Endpoints', CALLS: 'Calls', TARGETS: 'API targets', DOCUMENTS: 'Documentation' };
+  const toEntries = (map) => [...map.entries()].sort((left, right) => left[0].localeCompare(right[0])).map(([value, count]) => ({ value, label: names[value] ?? value, count }));
+  renderFilterGroup(dom.groupFilters, 'Node groups', toEntries(groups), state.view.activeGroups, 'activeGroups');
+  renderFilterGroup(dom.kindFilters, 'Node kinds', toEntries(kinds), state.view.activeKinds, 'activeKinds');
+  renderFilterGroup(dom.edgeFilters, 'Relationship kinds', toEntries(edgeKinds), state.view.activeEdgeKinds, 'activeEdgeKinds');
+  updateFilterSummary();
+}
+
+function renderList(info) {
+  const nodes = state.document.nodes.filter((node) => renderer.visibleNodeIds.has(node.id));
+  dom.nodeList.replaceChildren();
+  setText(dom.listCount, `${formatNumber(nodes.length)} visible`);
+  for (const node of nodes.slice(0, 650)) {
+    const item = button(`${node.label} · ${getNodeKindLabel(node)}`, 'list-node', () => selectNode(node.id));
+    item.setAttribute('aria-pressed', String(state.view.selectedId === node.id));
+    if (state.view.selectedId === node.id) item.classList.add('is-selected');
+    dom.nodeList.append(item);
+  }
+  if (nodes.length === 0) dom.nodeList.append(element('p', 'muted', 'No nodes match the current filters.'));
+  if (info.truncated) dom.nodeList.append(element('p', 'muted', `Showing up to ${state.view.nodeLimit} nodes. Search or increase the node limit in View to reveal more.`));
+}
+
 function updateStatus(info) {
   state.visibility = info;
   const legend = document.getElementById('layer-legend');
@@ -643,6 +731,36 @@ function applySavedView(payload, quiet = false, operation = beginDocumentOperati
   setPanel(dom.inspectorPanel, Boolean(state.view.selectedId), false);
   if (!quiet) showToast('Saved view restored.');
   return true;
+}
+
+function clearFilters() {
+  state.view.overviewMode = 'all';
+  state.view.isolationMode = 'all';
+  state.view.showInferred = true;
+  state.view.activeKinds = new Set();
+  state.view.activeGroups = new Set();
+  state.view.activeEdgeKinds = new Set();
+  state.view.search = '';
+  state.view.focusIds = null;
+  syncView();
+}
+
+function selectNode(nodeId, focus = false) {
+  if (!state.document.nodes.some((node) => node.id === nodeId)) return;
+  state.view.focusIds = null;
+  state.view.selectedId = nodeId;
+  if (!renderer.visibleNodeIds.has(nodeId)) {
+    state.view.search = '';
+    state.view.activeKinds = new Set();
+    state.view.activeGroups = new Set();
+    state.view.activeEdgeKinds = new Set();
+    state.view.focusIds = null;
+    state.view.overviewMode = 'all';
+  }
+  syncView();
+  renderInspector();
+  setPanel(dom.inspectorPanel, true);
+  if (focus) requestAnimationFrame(() => renderer.focusNode(nodeId));
 }
 
 function cancelParserJob() {
