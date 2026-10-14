@@ -87,6 +87,24 @@ const defaultViewSettings = Object.freeze({
   overviewMode: 'all'
 });
 
+let renderer;
+
+let toastTimer;
+
+let importStartedAt = Date.now();
+
+let projectNoticeTimer;
+
+function beginDocumentOperation() {
+  documentSequence += 1;
+  importStartedAt = Date.now();
+  return documentSequence;
+}
+
+function isCurrentDocumentOperation(operation) {
+  return operation === documentSequence;
+}
+
 function element(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -225,6 +243,32 @@ function normalizeSavedView(saved, document) {
   };
 }
 
+function showToast(message, tone = 'normal') {
+  setText(dom.toast, message);
+  dom.toast.className = `toast is-visible ${tone}`;
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => {
+    dom.toast.className = 'toast';
+  }, 4200);
+}
+
+function setBusy(value, message = '') {
+  state.busy = value;
+  dom.body.classList.toggle('is-busy', value);
+  if (message) setText(dom.dropMessage, message);
+  const loading = document.getElementById('project-loading');
+  if (loading) loading.hidden = !value;
+  if (value) {
+    setText(document.getElementById('loading-message'), message || 'Building your map…');
+    const notice = document.getElementById('project-notice');
+    if (notice) notice.hidden = true;
+  }
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat().format(value ?? 0);
+}
+
 function localViewKey(document) {
   return `codemesh:view:${document.fingerprint ?? fingerprintDocument(document)}`;
 }
@@ -236,6 +280,28 @@ function getLocalView(document) {
   } catch {
     return null;
   }
+}
+
+function updateStatus(info) {
+  state.visibility = info;
+  const legend = document.getElementById('layer-legend');
+  legend.replaceChildren();
+  if (['layered', 'auto'].includes(state.view.layoutMode)) {
+    for (const layer of info.layers ?? []) {
+      const item = element('span', '', layer.name);
+      item.style.setProperty('--layer-color', layer.color);
+      legend.append(item);
+    }
+  }
+  const edgeText = `${formatNumber(info.visibleEdges)} / ${formatNumber(info.totalEdges)}`;
+  setText(dom.graphStatus, `${formatNumber(info.visibleNodes)} / ${formatNumber(info.totalNodes)} nodes · ${edgeText} connections${state.view.edgeDisplay === 'selected' ? ' shown · select a node to explore' : ''}${info.truncated ? ' · node limit reached' : ''}`);
+  dom.emptyState.hidden = info.visibleNodes > 0;
+  const unloaded = state.document.nodes.length === 0;
+  setText(document.getElementById('empty-title'), unloaded ? 'Open your codebase' : 'No matching nodes');
+  setText(document.getElementById('empty-description'), unloaded ? 'Drop this folder onto the map, or select Open project. Browsers need your permission to read local files.' : 'Change your search or clear the filters.');
+  setText(document.getElementById('empty-clear'), unloaded ? 'Open project' : 'Clear filters');
+  renderList(info);
+  updateFilterSummary();
 }
 
 function updateSettingsControls() {
