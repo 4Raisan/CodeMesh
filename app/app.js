@@ -275,6 +275,13 @@ function formatNumber(value) {
   return new Intl.NumberFormat().format(value ?? 0);
 }
 
+function sourceLine(node) {
+  const source = node.source ?? {};
+  if (!source.startLine) return source.path ?? node.file ?? 'No source path';
+  if (source.endLine && source.endLine !== source.startLine) return `${source.path}:${source.startLine}-${source.endLine}`;
+  return `${source.path}:${source.startLine}`;
+}
+
 const serverProjectFileNames = new Set(['package.json', 'tsconfig.json', 'jsconfig.json', 'dockerfile', 'makefile', 'readme.md', 'license']);
 
 function isServerTextCandidate(path) {
@@ -605,6 +612,172 @@ function renderFilters() {
   renderFilterGroup(dom.kindFilters, 'Node kinds', toEntries(kinds), state.view.activeKinds, 'activeKinds');
   renderFilterGroup(dom.edgeFilters, 'Relationship kinds', toEntries(edgeKinds), state.view.activeEdgeKinds, 'activeEdgeKinds');
   updateFilterSummary();
+}
+
+function relationEvidence(edge) {
+  const evidence = edge.evidence ?? {};
+  const parts = [];
+  if (evidence.path) parts.push(evidence.path);
+  if (evidence.startLine) parts.push(`line ${evidence.startLine}${evidence.endLine && evidence.endLine !== evidence.startLine ? `-${evidence.endLine}` : ''}`);
+  if (evidence.extractor) parts.push(evidence.extractor);
+  if (evidence.revision) parts.push(`rev ${evidence.revision}`);
+  if (edge.resolution) parts.push(edge.resolution);
+  if (edge.inferred === true) parts.push(`inferred${Number.isFinite(edge.confidence) ? ` ${Math.round(edge.confidence * 100)}%` : ''}`);
+  else if (edge.inferred === false) parts.push('observed');
+  else parts.push('inference state not supplied');
+  return parts.join(' · ') || 'No evidence supplied';
+}
+
+function addBadge(parent, text, color) {
+  const badge = element('span', 'badge', text);
+  if (color) {
+    badge.style.backgroundColor = color;
+    const hex = color.replace('#', '');
+    const channels = hex.length === 6 ? [0, 2, 4].map(offset => parseInt(hex.slice(offset, offset + 2), 16)) : [255, 255, 255];
+    badge.style.color = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722 > 140 ? '#0c1424' : '#e9eef8';
+  }
+  parent.append(badge);
+}
+
+function addMetadataInspector(parent, metadata) {
+  const entries = Object.entries(metadata ?? {}).filter(([, value]) => value !== undefined && value !== null && typeof value !== 'object');
+  if (entries.length === 0) return;
+  const details = element('details', 'inspector-section');
+  details.append(element('summary', '', 'Metadata'));
+  const table = element('div', 'metadata-grid');
+  for (const [key, value] of entries.slice(0, 40)) {
+    const row = element('div', 'metadata-row');
+    row.append(element('span', 'metadata-key', key), element('span', 'metadata-value', String(value)));
+    table.append(row);
+  }
+  details.append(table);
+  parent.append(details);
+}
+
+function addRelationshipSection(parent, title, edges, indexes, direction) {
+  const section = element('details', 'inspector-section');
+  section.open = edges.length > 0;
+  section.append(element('summary', 'section-title', `${direction === 'incoming' ? 'Referenced by' : 'Connects to'} (${edges.length})`));
+  if (edges.length === 0) {
+    section.append(element('p', 'muted', 'None recorded.'));
+    parent.append(section);
+    return;
+  }
+  const list = element('div', 'relationship-list');
+  for (const edge of edges) {
+    const otherId = direction === 'incoming' ? edge.source : edge.target;
+    const other = indexes.nodesById.get(otherId);
+    const item = element('div', 'relationship-item');
+    const top = element('button', 'relationship-top');
+    top.type = 'button';
+    top.append(element('span', 'relationship-label', other?.label ?? otherId), element('span', 'relationship-kind', edge.kind.toLowerCase().replaceAll('_', ' ')));
+    const evidence = element('details', 'edge-evidence');
+    evidence.append(element('summary', '', edge.inferred ? `Evidence · inferred ${Math.round((edge.confidence ?? 0) * 100)}%` : 'Source evidence'), element('p', 'relationship-evidence', relationEvidence(edge)));
+    item.append(top, evidence);
+    top.addEventListener('click', () => selectNode(otherId));
+    list.append(item);
+  }
+  section.append(list);
+  parent.append(section);
+}
+
+function traceFromSelected() {
+  const selected = state.document.nodes.find((node) => node.id === state.view.selectedId);
+  if (!selected) return;
+  const indexes = createIndexes(state.document);
+  const queue = [[selected.id]];
+  const visited = new Set([selected.id]);
+  while (queue.length > 0) {
+    const path = queue.shift();
+    const last = path[path.length - 1];
+    const edges = [...(indexes.outgoing.get(last) ?? [])];
+    for (const edge of edges) {
+      if (visited.has(edge.target)) continue;
+      visited.add(edge.target);
+      const nextPath = [...path, edge.target];
+      if (nextPath.length >= 3) {
+        selectNode(edge.target, true);
+        showToast(`Trace found ${nextPath.length - 1} hops to ${indexes.nodesById.get(edge.target)?.label ?? edge.target}.`);
+        return;
+      }
+      queue.push(nextPath);
+    }
+  }
+  showToast('No downstream path was found from the selected node.');
+}
+
+function renderInspector() {
+  const container = dom.inspector;
+  container.replaceChildren();
+  const selected = state.document.nodes.find((node) => node.id === state.view.selectedId);
+  if (!selected) {
+    const heading = element('h2', 'inspector-title', 'Codebase overview');
+    container.append(heading, element('p', 'muted', 'Select a node on the canvas or in the accessible list to inspect source, relationships, and extraction evidence.'));
+    const metrics = element('div', 'overview-metrics');
+    addBadge(metrics, `${formatNumber(state.document.nodes.length)} nodes`, '#1d3557');
+    addBadge(metrics, `${formatNumber(state.document.edges.length)} edges`, '#173b45');
+    addBadge(metrics, `${formatNumber(state.document.diagnostics.length)} diagnostics`, '#3c2d1d');
+    container.append(metrics);
+    const source = element('p', 'source-line', `${state.document.repository.name} · ${state.document.repository.revision}`);
+    container.append(source);
+    if (state.document.diagnostics.length > 0) {
+      const details = element('details', 'inspector-section');
+      details.append(element('summary', '', 'Import diagnostics'));
+      const list = element('div', 'diagnostic-list');
+      for (const item of state.document.diagnostics.slice(0, 30)) list.append(element('p', `diagnostic diagnostic-${item.severity}`, `${item.severity.toUpperCase()}: ${item.message}`));
+      details.append(list);
+      container.append(details);
+    }
+    return;
+  }
+  const indexes = createIndexes(state.document);
+  const color = getNodeColor(selected);
+  const heading = element('h2', 'inspector-title', selected.label);
+  container.append(heading);
+  const badges = element('div', 'badge-row');
+  const typeNames = { module: 'Code file', file: 'Code file', route: 'Endpoint', 'api-call': 'API call', model: 'Data model', external: 'Dependency', configuration: 'Configuration', schema: 'Schema' };
+  addBadge(badges, typeNames[selected.kind] ?? getNodeKindLabel(selected), color);
+  addBadge(badges, `${(indexes.degree.get(selected.id) ?? 0)} connections`, '#26364d');
+  container.append(badges);
+  const revision = selected.source?.revision && !['browser-import', 'sample'].includes(selected.source.revision) ? ` · rev ${selected.source.revision}` : '';
+  const source = element('p', 'source-line', `${sourceLine(selected)}${revision}`);
+  if (state.document.repository.url) {
+    const link = element('a', 'source-link', 'Open repository source');
+    link.href = state.document.repository.url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    container.append(source, link);
+  } else {
+    container.append(source);
+  }
+  const actions = element('div', 'inspector-actions');
+  actions.append(button('Center', 'small-button', () => selectNode(selected.id, true)));
+  actions.append(button('Show neighbors', 'small-button', () => {
+    const neighbors = new Set([selected.id]);
+    const allowed = edge => (state.view.showInferred || !edge.inferred) && (state.view.activeEdgeKinds.size === 0 || state.view.activeEdgeKinds.has(edge.kind));
+    for (const edge of indexes.outgoing.get(selected.id) ?? []) if (allowed(edge)) neighbors.add(edge.target);
+    for (const edge of indexes.incoming.get(selected.id) ?? []) if (allowed(edge)) neighbors.add(edge.source);
+    state.view.overviewMode = 'all';
+    state.view.activeKinds = new Set();
+    state.view.activeGroups = new Set();
+    state.view.search = '';
+    state.view.focusIds = neighbors;
+    syncView();
+    requestAnimationFrame(() => renderer.fit());
+    showToast(`Focused ${neighbors.size} visible neighborhood nodes.`);
+  }));
+  if (state.view.focusIds) actions.append(button('Show full map', 'small-button', () => {
+    state.view.focusIds = null;
+    syncView();
+    requestAnimationFrame(() => renderer.fit());
+  }));
+  const more = element('details', 'node-more');
+  more.append(element('summary', '', 'More'), button('Trace dependencies', 'small-button', traceFromSelected));
+  actions.append(more);
+  container.append(actions);
+  addMetadataInspector(container, selected.metadata);
+  addRelationshipSection(container, 'Outgoing relationships', indexes.outgoing.get(selected.id) ?? [], indexes, 'outgoing');
+  addRelationshipSection(container, 'Incoming relationships', indexes.incoming.get(selected.id) ?? [], indexes, 'incoming');
 }
 
 function renderList(info) {
