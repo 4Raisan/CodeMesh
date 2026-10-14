@@ -65,66 +65,32 @@ function shouldShowEdgeLabel(mode, active) {
 }
 
 export class GraphRenderer {
-  onPointerDown(event) {
-    if (event.button !== undefined && event.button !== 0) return;
+  onKeyDown(event) {
     const nodeElement = event.target.closest?.('[data-node-id]');
-    const groupElement = this.view.layoutMode === 'grid' && event.target.closest?.('[data-group-name]');
-    const point = this.localPoint(event);
-    if (groupElement) {
-      const name = groupElement.getAttribute('data-group-name');
-      const offset = this.view.groupOffsets?.[name] ?? { x: 0, y: 0 };
-      this.drag = { type: 'group', name, originX: offset.x, originY: offset.y, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, moved: false };
-    } else if (nodeElement) {
-      this.drag = { type: 'node', id: nodeElement.dataset.nodeId, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, moved: false, point };
-    } else {
-      this.drag = { type: 'pan', pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, originX: this.view.x, originY: this.view.y, moved: false, point };
-    }
-    this.svg.setPointerCapture?.(event.pointerId);
-    event.preventDefault();
-  }
-
-  onPointerMove(event) {
-    if (!this.drag || (this.drag.pointerId !== undefined && event.pointerId !== this.drag.pointerId)) return;
-    if (this.drag.type === 'group') {
-      const dx = (event.clientX - this.drag.startX) / this.view.scale;
-      const dy = (event.clientY - this.drag.startY) / this.view.scale;
-      this.drag.moved = Math.hypot(dx, dy) > 3;
-      this.view.groupOffsets = { ...this.view.groupOffsets, [this.drag.name]: { x: this.drag.originX + dx, y: this.drag.originY + dy } };
-      this.scheduleRender();
+    if (nodeElement && (event.key === 'Enter' || event.key === ' ')) {
       event.preventDefault();
+      this.selectNode(nodeElement.dataset.nodeId, true);
       return;
-    } else if (this.drag.type === 'node') {
-      if (Math.hypot(event.clientX - this.drag.startX, event.clientY - this.drag.startY) > 3) this.drag.moved = true;
-      event.preventDefault();
-      return;
-    } else {
-      this.view.x = this.drag.originX + event.clientX - this.drag.startX;
-      this.view.y = this.drag.originY + event.clientY - this.drag.startY;
-      if (Math.hypot(event.clientX - this.drag.startX, event.clientY - this.drag.startY) > 3) this.drag.moved = true;
-      this.applyTransform();
     }
-    event.preventDefault();
-  }
-
-  onPointerUp(event) {
-    if (!this.drag || (this.drag.pointerId !== undefined && event.pointerId !== this.drag.pointerId)) return;
-    const drag = this.drag;
-    this.drag = null;
-    this.svg.releasePointerCapture?.(event.pointerId);
-    if (drag.type === 'group') {
-      this.callbacks.onViewChange?.(this.getView());
-    } else if (drag.type === 'node') {
-      if (drag.moved) this.callbacks.onViewChange?.(this.getView());
-      else this.selectNode(drag.id);
-    } else if (drag.moved) {
-      this.callbacks.onViewChange?.(this.getView());
-    } else {
-      this.clearSelection();
+    if (event.key === 'f' && this.view.selectedId) {
+      event.preventDefault();
+      this.focusNode(this.view.selectedId);
+      return;
+    }
+    if (event.key === 'Escape') {
       this.callbacks.onEscape?.();
+      return;
     }
-  }
-
-  onPointerCancel() {
-    this.drag = null;
+    const step = 60 / this.view.scale;
+    if (event.key === 'ArrowLeft') this.view.x += step;
+    else if (event.key === 'ArrowRight') this.view.x -= step;
+    else if (event.key === 'ArrowUp') this.view.y -= step;
+    else if (event.key === 'ArrowDown') this.view.y += step;
+    else if (event.key === '+' || event.key === '=') this.zoomBy(1.15);
+    else if (event.key === '-') this.zoomBy(0.87);
+    else return;
+    event.preventDefault();
+    this.applyTransform();
+    this.callbacks.onViewChange?.(this.getView());
   }
 }
