@@ -91,6 +91,8 @@ let renderer;
 
 let toastTimer;
 
+let activeParserJob = null;
+
 let documentSequence = 0;
 
 let importStartedAt = Date.now();
@@ -602,6 +604,125 @@ function syncView() {
   updateStats();
   renderFilters();
   renderInspector();
+}
+
+function adoptDocument(input, sourceLabel, operation = beginDocumentOperation()) {
+  if (!isCurrentDocumentOperation(operation)) return false;
+  const normalized = normalizeGraphDocument(input);
+  if (normalized.nodes.length === 0) throw new Error('The graph contains no usable nodes.');
+  state.document = normalized;
+  setText(document.getElementById('source-hint'), `${sourceLabel} · ${formatNumber(normalized.nodes.length)} nodes loaded`);
+  state.view = emptyView(normalized);
+  setPanel(dom.inspectorPanel, false);
+  renderer.setDocument(normalized);
+  syncView();
+  requestAnimationFrame(() => renderer.fit());
+  updateStatus({ visibleNodes: normalized.nodes.length, totalNodes: normalized.nodes.length, visibleEdges: normalized.edges.length, totalEdges: normalized.edges.length, truncated: false });
+  const count = normalized.nodes.length;
+  const guidance = count <= 300 ? 'Within the recommended everyday viewing range.' : count <= 1000 ? 'For a smoother view, keep Architecture layers and use filters or Show neighbors.' : 'Large map: explore smaller neighborhoods. Force layout may be slow.';
+  setText(document.getElementById('project-notice-count'), `${formatNumber(count)} nodes · ${formatNumber(normalized.edges.length)} connections`);
+  setText(document.getElementById('project-notice-guidance'), guidance + (normalized.coverage.partial ? ' Partial coverage: some files were skipped.' : ''));
+  setText(document.getElementById('project-notice-time'), `Imported and arranged in ${((Date.now() - importStartedAt) / 1000).toFixed(1)} s · device-dependent`);
+  const notice = document.getElementById('project-notice');
+  if (notice) notice.hidden = false;
+  window.clearTimeout(projectNoticeTimer);
+  projectNoticeTimer = window.setTimeout(() => { if (notice) notice.hidden = true; }, 14000);
+  return true;
+}
+
+function applySavedView(payload, quiet = false, operation = beginDocumentOperation()) {
+  if (!isCurrentDocumentOperation(operation)) return false;
+  if (!payload || payload.fingerprint !== state.document.fingerprint) {
+    if (!quiet) showToast('Saved view revision or graph fingerprint does not match the loaded graph.', 'warning');
+    return false;
+  }
+  const normalized = normalizeSavedView(payload.view, state.document);
+  if (!normalized) return false;
+  state.view = normalized;
+  syncView();
+  setPanel(dom.inspectorPanel, Boolean(state.view.selectedId), false);
+  if (!quiet) showToast('Saved view restored.');
+  return true;
+}
+
+function cancelParserJob() {
+  if (!activeParserJob) return;
+  const job = activeParserJob;
+  activeParserJob = null;
+  job.settled = true;
+  if (job.timer) window.clearTimeout(job.timer);
+  job.worker?.terminate();
+  job.resolve({ cancelled: true });
+}
+
+async function parseCodebase(records, options) {
+  const operation = documentSequence;
+  cancelParserJob();
+  if (document.visibilityState === 'visible') await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  if (!isCurrentDocumentOperation(operation)) return { cancelled: true };
+  const fallback = () => createCodebaseGraph(records, options);
+  if (typeof Worker !== 'function') return Promise.resolve({ document: fallback() });
+  const job = { worker: null, resolve: null, timer: null, settled: false };
+  const promise = new Promise((resolve) => {
+    job.resolve = resolve;
+  });
+  activeParserJob = job;
+  try {
+    const worker = new Worker(new URL('./parser-worker.js', import.meta.url), { type: 'module' });
+    job.worker = worker;
+    const finish = (result) => {
+      if (job.settled) return;
+      job.settled = true;
+      if (job.timer) window.clearTimeout(job.timer);
+      if (activeParserJob === job) activeParserJob = null;
+      worker.terminate();
+      job.resolve(result);
+    };
+    worker.addEventListener('message', (event) => {
+      if (event.data?.type === 'result') finish({ document: event.data.document });
+      else finish({ error: new Error(event.data?.message ?? 'Codebase parser worker failed.') });
+    });
+    worker.addEventListener('error', () => {
+      try {
+        finish({ document: fallback() });
+      } catch (error) {
+        finish({ error });
+      }
+    });
+    job.timer = window.setTimeout(() => finish({ error: new Error('Codebase parsing exceeded the browser time limit.') }), 30000);
+    worker.postMessage({ records, options });
+  } catch {
+    activeParserJob = null;
+    return Promise.resolve({ document: fallback() });
+  }
+  return promise;
+}
+
+async function handleRecords(records, sourceLabel, operation = beginDocumentOperation()) {
+  if (records.length === 0) throw new Error('No files were found in the selection.');
+  if (!isCurrentDocumentOperation(operation)) return;
+  const graphCandidates = [];
+  for (const record of records) {
+    if (!record.path.toLowerCase().endsWith('.json') || record.bytes > 40 * 1024 * 1024) continue;
+    try {
+      const value = JSON.parse(record.text);
+      if (isGraphDocument(value) || isViewDocument(value)) graphCandidates.push({ record, value });
+    } catch {
+      continue;
+    }
+  }
+  if (graphCandidates.length > 1) throw new Error('More than one graph JSON was found. Drop one graph export or a source folder without graph exports.');
+  if (graphCandidates.length === 1) {
+    const candidate = graphCandidates[0];
+    if (isViewDocument(candidate.value)) applySavedView(candidate.value, false, operation);
+    else adoptDocument(candidate.value, candidate.record.path, operation);
+    return;
+  }
+  setBusy(true, 'Finding nodes and connections…');
+  const parsed = await parseCodebase(records, { stripCommonRoot: true, name: sourceLabel });
+  if (parsed.cancelled) return;
+  if (parsed.error) throw parsed.error;
+  adoptDocument(parsed.document, sourceLabel, operation);
 }
 
 async function processFileList(fileList, sourceLabel) {
