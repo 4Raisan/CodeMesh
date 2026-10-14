@@ -612,6 +612,213 @@ export function getArchitectureLayer(node) {
   return 'Other files';
 }
 
+export function computeLayout(document, options = {}) {
+  const requestedNodes = options.nodes ?? document?.nodes ?? [];
+  const savedPositions = isRecord(options.positions) ? options.positions : {};
+  const nodes = requestedNodes.filter((node) => node && node.id);
+  if (nodes.length === 0) return {};
+  const indexes = options.indexes ?? createIndexes(document);
+  const spacing = Math.max(0.65, Math.min(1.6, finiteNumber(options.spacing) ?? 1));
+  const labelScale = Math.max(0.7, Math.min(1.6, finiteNumber(options.labelScale) ?? 1));
+  const nodeScale = Math.max(0.7, Math.min(1.6, finiteNumber(options.nodeScale) ?? 1));
+  const mode = options.mode === 'grid' ? 'grid' : options.mode === 'force' ? 'force' : 'auto';
+  const sortedNodes = [...nodes].sort((left, right) => (indexes.degree.get(right.id) ?? 0) - (indexes.degree.get(left.id) ?? 0) || left.id.localeCompare(right.id));
+  const result = {};
+  if (mode === 'auto' || options.mode === 'layered') {
+    const order = ['Data', 'Auth & middleware', 'Services', 'Routes & entrypoints', 'Endpoints', 'API calls', 'UI', 'Other files', 'Dependencies'];
+    const populated = order.map(layer => ({ layer, bucket: sortedNodes.filter(node => getArchitectureLayer(node) === layer) })).filter(item => item.bucket.length).sort((a, b) => a.bucket.length - b.bucket.length || order.indexOf(a.layer) - order.indexOf(b.layer));
+    const minimumGap = Math.max(...sortedNodes.map(node => getNodeGeometry(node, { nodeScale, labelScale }).height)) + 92 * spacing;
+    // Choose one common pitch from the busiest layer's capacity requirement.
+    // Every layer gets a single ring; no fixed node-count cap or project-specific rule.
+    const ringPitch = Math.max(minimumGap, ...populated.map(({ bucket }, index) => {
+      const diameter = Math.max(...bucket.map(node => { const g = getNodeGeometry(node, { nodeScale, labelScale }); return Math.hypot(g.width, g.height) + 16 * spacing; }));
+      const requiredRadius = diameter / (2 * Math.sin(Math.PI / Math.max(3, bucket.length + 2)));
+      return requiredRadius / (index + 1);
+    })) * 1.2;
+    let ringRadius = 0;
+    const headings = [];
+    const headingPositions = {};
+    const layerRadii = {};
+    for (const [layerIndex, { layer, bucket: layerNodes }] of populated.entries()) {
+      const bucket = [...layerNodes].sort((a, b) => a.id.localeCompare(b.id));
+      const diameters = bucket.map(node => {
+        const g = getNodeGeometry(node, { nodeScale, labelScale });
+        return Math.hypot(g.width, g.height) + 16 * spacing;
+      });
+      const diameter = Math.max(...diameters);
+      const trackGap = ringPitch;
+      ringRadius += ringPitch;
+      layerRadii[layer] = ringRadius;
+      const headingId = `\0heading:${layer}`;
+      const widestCard = Math.max(...bucket.map(node => getNodeGeometry(node, { nodeScale, labelScale }).width));
+      const headingSize = Math.max(12, Math.min(60, options.areaNameSize ?? 26));
+      const heading = { id: headingId, layoutObstacle: { width: Math.max(widestCard, layer.length * headingSize * nodeScale * labelScale * 0.7) + 64 * spacing, height: headingSize * nodeScale * labelScale + 72 * spacing } };
+      headings.push(heading);
+      headingPositions[headingId] = { x: 0, y: -ringRadius };
+      // Bound each ring's population by chord distance, not arc length. Large
+      // layers use additional tracks rather than squeezing labels together.
+      let offset = 0;
+      while (offset < bucket.length) {
+        const capacity = bucket.length;
+        const track = bucket.slice(offset, offset + capacity);
+        for (const [index, node] of track.entries()) {
+          // Slot zero belongs to the heading. Every real node is another slot
+          // in the same circular distribution, for every architecture layer.
+          const slotAngle = Math.PI * 2 / (track.length + 1);
+          // Gently stagger neighbouring rings while keeping the heading slot
+          // clear. The shift tapers to zero beside the heading.
+          const stagger = layerIndex === 0 ? 0 : (layerIndex % 2 ? 1 : -1) * slotAngle * 0.16 * Math.sin(Math.PI * (index + 1) / (track.length + 1));
+          const angle = -Math.PI / 2 + (index + 1) * slotAngle + stagger;
+          const saved = savedPositions[node.id];
+          result[node.id] = isRecord(saved) && finiteNumber(saved.x) !== undefined && finiteNumber(saved.y) !== undefined
+            ? { x: saved.x, y: saved.y }
+            : { x: Math.cos(angle) * ringRadius, y: Math.sin(angle) * ringRadius };
+        }
+        offset += track.length;
+        if (offset < bucket.length) ringRadius += trackGap;
+      }
+    }
+    Object.assign(result, headingPositions);
+    resolveNodeCollisions(result, [...sortedNodes, ...headings], { ...savedPositions, ...headingPositions }, spacing, labelScale, nodeScale);
+    for (const heading of headings) delete result[heading.id];
+    Object.defineProperty(result, 'layerRadii', { value: layerRadii, enumerable: false });
+    return result;
+  }
+  const movable = [];
+  const radius = Math.max(190, Math.sqrt(sortedNodes.length) * 58) * spacing;
+  for (const [index, node] of sortedNodes.entries()) {
+    const saved = savedPositions[node.id];
+    if (isRecord(saved) && finiteNumber(saved.x) !== undefined && finiteNumber(saved.y) !== undefined) {
+      result[node.id] = { x: saved.x, y: saved.y };
+      continue;
+    }
+    const angle = (index / sortedNodes.length) * Math.PI * 2;
+    const distance = radius * (0.72 + ((index % 9) / 9) * 0.28);
+    result[node.id] = { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance };
+    movable.push(node.id);
+  }
+  if (movable.length === 0) return result;
+  if (mode !== 'grid' && (mode === 'force' || sortedNodes.length <= 160)) {
+    const visibleIds = new Set(sortedNodes.map((node) => node.id));
+    const edges = (options.edges ?? document?.edges ?? []).filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
+    const velocities = new Map(movable.map((id) => [id, { x: 0, y: 0 }]));
+    const iterations = sortedNodes.length <= 250 ? 64 : 38;
+    const idealDistance = Math.max(0, Math.min(1500, finiteNumber(options.linkDistance) ?? 180)) * spacing;
+    const repulsionStrength = Math.max(-10, Math.min(10, finiteNumber(options.repulsion) ?? 1));
+    for (let iteration = 0; iteration < iterations; iteration += 1) {
+      const forces = new Map(movable.map((id) => [id, { x: 0, y: 0 }]));
+      for (let leftIndex = 0; leftIndex < movable.length; leftIndex += 1) {
+        const leftId = movable[leftIndex];
+        const left = result[leftId];
+        for (let rightIndex = leftIndex + 1; rightIndex < movable.length; rightIndex += 1) {
+          const rightId = movable[rightIndex];
+          const right = result[rightId];
+          const dx = left.x - right.x;
+          const dy = left.y - right.y;
+          const distanceSquared = dx * dx + dy * dy + 0.01;
+          const distance = Math.sqrt(distanceSquared);
+          const repulsion = Math.max(-34, Math.min(34, 50000 * repulsionStrength / distanceSquared));
+          const forceX = dx / distance * repulsion;
+          const forceY = dy / distance * repulsion;
+          forces.get(leftId).x += forceX;
+          forces.get(leftId).y += forceY;
+          forces.get(rightId).x -= forceX;
+          forces.get(rightId).y -= forceY;
+        }
+      }
+      for (const edge of edges) {
+        const left = result[edge.source];
+        const right = result[edge.target];
+        if (!left || !right) continue;
+        const dx = right.x - left.x;
+        const dy = right.y - left.y;
+        const distance = Math.hypot(dx, dy) || 1;
+        const attraction = (distance - idealDistance) * 0.018;
+        const forceX = dx / distance * attraction;
+        const forceY = dy / distance * attraction;
+        if (forces.has(edge.source)) {
+          forces.get(edge.source).x += forceX;
+          forces.get(edge.source).y += forceY;
+        }
+        if (forces.has(edge.target)) {
+          forces.get(edge.target).x -= forceX;
+          forces.get(edge.target).y -= forceY;
+        }
+      }
+      const cooling = 1 - iteration / iterations * 0.72;
+      for (const id of movable) {
+        const position = result[id];
+        const force = forces.get(id);
+        force.x += -position.x * 0.0018;
+        force.y += -position.y * 0.0018;
+        const velocity = velocities.get(id);
+        velocity.x = (velocity.x + force.x * 0.16) * 0.78 * cooling;
+        velocity.y = (velocity.y + force.y * 0.16) * 0.78 * cooling;
+        const speed = Math.hypot(velocity.x, velocity.y);
+        if (speed > 18) {
+          velocity.x = velocity.x / speed * 18;
+          velocity.y = velocity.y / speed * 18;
+        }
+        position.x += velocity.x;
+        position.y += velocity.y;
+        if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) {
+          position.x = 0;
+          position.y = 0;
+        }
+      }
+    }
+    return resolveNodeCollisions(result, sortedNodes, savedPositions, spacing, labelScale, nodeScale);
+  }
+  const buckets = new Map();
+  for (const node of sortedNodes) {
+    const group = getArchitectureLayer(node);
+    if (!buckets.has(group)) buckets.set(group, []);
+    buckets.get(group).push(node);
+  }
+  const groups = [...buckets.keys()].sort((left, right) => groupRank(left) - groupRank(right) || left.localeCompare(right));
+  const groupLayouts = groups.map((group) => {
+    const bucket = buckets.get(group).sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+    const columns = Math.max(1, Math.ceil(Math.sqrt(bucket.length)));
+    const rows = Math.ceil(bucket.length / columns);
+    const stepX = Math.max(...bucket.map(node => getNodeGeometry(node, { nodeScale, labelScale }).width)) + 44 * spacing;
+    const stepY = Math.max(...bucket.map(node => getNodeGeometry(node, { nodeScale, labelScale }).height)) + 48 * spacing;
+    const headingWidth = `${group} · ${bucket.length}`.length * 11 * labelScale + 40;
+    return { group, bucket, columns, rows, stepX, stepY, width: Math.max(columns * stepX, headingWidth), height: rows * stepY };
+  });
+  const columns = Math.max(1, Math.ceil(Math.sqrt(groups.length)));
+  const shelves = [];
+  for (let i = 0; i < groupLayouts.length; i += columns) {
+    const layouts = groupLayouts.slice(i, i + columns);
+    shelves.push({ layouts, width: layouts.reduce((sum, layout) => sum + layout.width, 0) + (layouts.length - 1) * 100 * spacing, height: Math.max(...layouts.map(layout => layout.height)) + 130 * spacing });
+  }
+  const totalHeight = shelves.reduce((sum, shelf) => sum + shelf.height, 0);
+  let shelfTop = -totalHeight / 2;
+  const centers = new Map();
+  for (const shelf of shelves) {
+    let left = -shelf.width / 2;
+    for (const layout of shelf.layouts) {
+      centers.set(layout.group, { x: left + layout.width / 2, y: shelfTop + layout.height / 2 });
+      left += layout.width + 100 * spacing;
+    }
+    shelfTop += shelf.height;
+  }
+  for (const [groupIndex, layout] of groupLayouts.entries()) {
+    const groupCenterX = centers.get(layout.group).x;
+    const groupCenterY = centers.get(layout.group).y;
+    for (const [index, node] of layout.bucket.entries()) {
+      const saved = savedPositions[node.id];
+      if (isRecord(saved) && finiteNumber(saved.x) !== undefined && finiteNumber(saved.y) !== undefined) continue;
+      const column = index % layout.columns;
+      const row = Math.floor(index / layout.columns);
+      result[node.id] = {
+        x: groupCenterX + (column - (layout.columns - 1) / 2) * layout.stepX,
+        y: groupCenterY + (row - (layout.rows - 1) / 2) * layout.stepY
+      };
+    }
+  }
+  return resolveNodeCollisions(result, sortedNodes, savedPositions, spacing, labelScale, nodeScale);
+}
+
 export function fingerprintDocument(document) {
   const text = [
     document?.schemaVersion ?? SCHEMA_VERSION,
