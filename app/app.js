@@ -282,6 +282,14 @@ function sourceLine(node) {
   return `${source.path}:${source.startLine}`;
 }
 
+function isGraphDocument(value) {
+  return value !== null && typeof value === 'object' && Array.isArray(value.nodes);
+}
+
+function isViewDocument(value) {
+  return value !== null && typeof value === 'object' && ['codemesh-view', 'kg-map-view'].includes(value.type) && value.view && typeof value.view === 'object';
+}
+
 const serverProjectFileNames = new Set(['package.json', 'tsconfig.json', 'jsconfig.json', 'dockerfile', 'makefile', 'readme.md', 'license']);
 
 function isServerTextCandidate(path) {
@@ -934,6 +942,22 @@ function selectNode(nodeId, focus = false) {
   renderInspector();
   setPanel(dom.inspectorPanel, true);
   if (focus) requestAnimationFrame(() => renderer.focusNode(nodeId));
+}
+
+function handleViewFile(file, operation = beginDocumentOperation()) {
+  return readTextFile(file).then((text) => {
+    if (!isCurrentDocumentOperation(operation)) return;
+    const value = JSON.parse(text);
+    if (isViewDocument(value)) {
+      applySavedView(value, false, operation);
+      return;
+    }
+    if (isGraphDocument(value)) {
+      adoptDocument(value, file.name, operation);
+      return;
+    }
+    throw new Error('The JSON file is not a compatible CodeMesh graph or saved view.');
+  });
 }
 
 function cancelParserJob() {
