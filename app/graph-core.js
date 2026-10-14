@@ -599,6 +599,19 @@ function resolveNodeCollisions(result, nodes, savedPositions, spacing, labelScal
   return result;
 }
 
+export function getArchitectureLayer(node) {
+  const path = String(node.source?.path ?? node.label ?? '').toLowerCase();
+  if (/model|schema|database|table/.test(node.kind)) return 'Data';
+  if (node.kind === 'route') return 'Endpoints';
+  if (node.kind === 'api-call') return 'API calls';
+  if (/external|dependency/.test(node.kind) || node.group === 'external' || node.group === 'unresolved') return 'Dependencies';
+  if (/middleware|\/auth\//.test(path)) return 'Auth & middleware';
+  if (/service|\/jobs\//.test(path)) return 'Services';
+  if (/route|controller|server\.[^.]+$/.test(path)) return 'Routes & entrypoints';
+  if (node.group === 'ui' || /frontend|\/pages\/|\/components\/|\.jsx$|\.tsx$/.test(path)) return 'UI';
+  return 'Other files';
+}
+
 export function fingerprintDocument(document) {
   const text = [
     document?.schemaVersion ?? SCHEMA_VERSION,
