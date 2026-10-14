@@ -1,9 +1,6 @@
 export const SCHEMA_VERSION = 'codemesh/1';
-
 export const MAX_NODES = 10000;
-
 export const MAX_EDGES = 30000;
-
 export const DEFAULT_VISIBLE_NODE_LIMIT = 650;
 
 export const DEFAULT_COLORS = Object.freeze({
@@ -20,13 +17,9 @@ export const DEFAULT_COLORS = Object.freeze({
 });
 
 const GROUP_ORDER = ['core', 'entrypoint', 'route', 'ui', 'code', 'service', 'data', 'test', 'docs', 'config', 'external', 'unresolved', 'other'];
-
 const CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
-
 const MAX_SERIALIZED_METADATA = 2000;
-
 const UNSERIALIZABLE_METADATA = '[unserializable]';
-
 const TRUNCATED_METADATA = '[truncated]';
 
 function isRecord(value) {
@@ -503,7 +496,6 @@ function groupRank(group) {
 }
 
 let nodeTextContext;
-
 export function getNodeGeometry(node, options = {}) {
   if (node.layoutObstacle) return { ...node.layoutObstacle, boxLike: true, radius: 0 }; 
   const nodeScale = options.nodeScale ?? 1;
@@ -819,6 +811,37 @@ export function computeLayout(document, options = {}) {
   return resolveNodeCollisions(result, sortedNodes, savedPositions, spacing, labelScale, nodeScale);
 }
 
+export function getBounds(positions) {
+  const values = Object.values(positions ?? {}).filter((position) => isRecord(position) && finiteNumber(position.x) !== undefined && finiteNumber(position.y) !== undefined);
+  if (values.length === 0) return { left: -100, right: 100, top: -100, bottom: 100, width: 200, height: 200 };
+  const left = Math.min(...values.map((position) => position.x));
+  const right = Math.max(...values.map((position) => position.x));
+  const top = Math.min(...values.map((position) => position.y));
+  const bottom = Math.max(...values.map((position) => position.y));
+  return { left, right, top, bottom, width: right - left, height: bottom - top };
+}
+
+export function getNodeColor(node) {
+  const layerColors = {
+    Data: '#f5c451',
+    'Auth & middleware': '#ff766f',
+    Services: '#53d7ed',
+    'Routes & entrypoints': '#e2e8f0',
+    Endpoints: '#70df92',
+    'API calls': '#f48dc5',
+    UI: '#719dff',
+    'Other files': '#9da9b9',
+    Dependencies: '#b692f6'
+  };
+  return node ? layerColors[getArchitectureLayer(node)] ?? '#9da9b9' : '#9da9b9';
+}
+
+export function getNodeKindLabel(node) {
+  if (node?.group === 'unresolved' || node?.metadata?.unresolved === true) return 'Unresolved';
+  if (node?.group === 'external') return 'External dependency';
+  return String(node?.kind ?? 'File').replace(/([a-z])([A-Z])/g, '$1 $2');
+}
+
 export function fingerprintDocument(document) {
   const text = [
     document?.schemaVersion ?? SCHEMA_VERSION,
@@ -831,4 +854,37 @@ export function fingerprintDocument(document) {
     hash = Math.imul(hash, 16777619);
   }
   return `kg-${(hash >>> 0).toString(16)}`;
+}
+
+export function createSampleDocument() {
+  const revision = 'sample';
+  const source = (path) => ({ path, revision });
+  const nodes = [
+    { id: 'file:src/app.ts', kind: 'file', label: 'src/app.ts', group: 'entrypoint', source: source('src/app.ts'), metadata: { language: 'TypeScript' } },
+    { id: 'file:src/routes/users.ts', kind: 'file', label: 'src/routes/users.ts', group: 'route', source: source('src/routes/users.ts'), metadata: { language: 'TypeScript' } },
+    { id: 'route:GET_/users', kind: 'route', label: 'GET /users', group: 'route', source: source('src/routes/users.ts'), metadata: { method: 'GET', path: '/users' } },
+    { id: 'file:src/services/user-service.ts', kind: 'file', label: 'src/services/user-service.ts', group: 'service', source: source('src/services/user-service.ts'), metadata: { language: 'TypeScript' } },
+    { id: 'file:src/db/schema.prisma', kind: 'schema', label: 'src/db/schema.prisma', group: 'data', source: source('src/db/schema.prisma'), metadata: { language: 'Prisma' } },
+    { id: 'model:User', kind: 'model', label: 'User', group: 'data', source: source('src/db/schema.prisma'), metadata: { language: 'Prisma' } },
+    { id: 'file:tests/user.test.ts', kind: 'test', label: 'tests/user.test.ts', group: 'test', source: source('tests/user.test.ts'), metadata: { language: 'TypeScript' } },
+    { id: 'file:README.md', kind: 'documentation', label: 'README.md', group: 'docs', source: source('README.md'), metadata: { language: 'Markdown' } }
+  ];
+  const edges = [
+    { source: 'file:src/app.ts', target: 'file:src/routes/users.ts', kind: 'IMPORTS', label: 'imports', evidence: { path: 'src/app.ts', startLine: 1, endLine: 1, extractor: 'sample', revision }, inferred: false },
+    { source: 'file:src/routes/users.ts', target: 'route:GET_/users', kind: 'EXPOSES', label: 'exposes', evidence: { path: 'src/routes/users.ts', startLine: 4, endLine: 4, extractor: 'sample', revision }, inferred: false },
+    { source: 'file:src/routes/users.ts', target: 'file:src/services/user-service.ts', kind: 'IMPORTS', label: 'imports', evidence: { path: 'src/routes/users.ts', startLine: 2, endLine: 2, extractor: 'sample', revision }, inferred: false },
+    { source: 'file:src/services/user-service.ts', target: 'model:User', kind: 'QUERIES', label: 'queries', evidence: { path: 'src/services/user-service.ts', startLine: 7, endLine: 7, extractor: 'sample', revision }, inferred: false },
+    { source: 'file:src/db/schema.prisma', target: 'model:User', kind: 'DEFINES', label: 'defines', evidence: { path: 'src/db/schema.prisma', startLine: 3, endLine: 12, extractor: 'sample', revision }, inferred: false },
+    { source: 'file:tests/user.test.ts', target: 'file:src/services/user-service.ts', kind: 'IMPORTS', label: 'tests', evidence: { path: 'tests/user.test.ts', startLine: 2, endLine: 2, extractor: 'sample', revision }, inferred: false },
+    { source: 'file:README.md', target: 'file:src/app.ts', kind: 'DOCUMENTS', label: 'documents', evidence: { path: 'README.md', startLine: 1, endLine: 1, extractor: 'sample', revision }, inferred: false }
+  ];
+  return normalizeGraphDocument({
+    schemaVersion: SCHEMA_VERSION,
+    name: 'Example codebase graph',
+    repository: { name: 'Example project', revision },
+    extractor: { name: 'codemesh-sample', version: '1.0.0', mode: 'sample' },
+    coverage: { filesScanned: 8, maxInitialNodes: 650 },
+    nodes,
+    edges
+  });
 }
