@@ -45,27 +45,29 @@ function shouldShowEdgeLabel(mode, active) {
 }
 
 export class GraphRenderer {
-  suppressEdgeLabelCollisions() {
-    if (!this.nodeLayer.querySelectorAll || !this.edgeLayer.querySelectorAll) return;
-    const occupied = [...this.nodeLayer.querySelectorAll('.kg-node-label, .kg-node-shape, .kg-node-kind'), ...this.layerLabels.querySelectorAll('text')].map(element => element.getBoundingClientRect());
-    const intersects = (left, right) => left.left < right.right + 2 && left.right > right.left - 2 && left.top < right.bottom + 2 && left.bottom > right.top - 2;
-    for (const { label, textPath, gapPath, gap, reverse } of this.edgeLabelPlacements ?? []) {
-      let placed = false;
-      for (const offset of [50, 42, 58, 34, 66, 26, 74, 18, 82]) {
-        if (offset - gap / 2 < 5 || offset + gap / 2 > 95) continue;
-        textPath.setAttribute('startOffset', `${offset}%`);
-        const bounds = label.getBoundingClientRect();
-        if (occupied.some(other => intersects(bounds, other))) continue;
-        const center = reverse ? 100 - offset : offset;
-        gapPath.setAttribute('stroke-dasharray', `0 ${center - gap / 2} ${gap} 100`);
-        occupied.push(bounds);
-        placed = true;
-        break;
-      }
-      if (!placed) {
-        label.setAttribute('visibility', 'hidden');
-        gapPath.setAttribute('stroke', 'none');
-      }
+  getNeighborIds(nodeId) {
+    const result = new Set();
+    if (!nodeId) return result;
+    for (const edge of this.indexes.outgoing.get(nodeId) ?? []) result.add(edge.target);
+    for (const edge of this.indexes.incoming.get(nodeId) ?? []) result.add(edge.source);
+    return result;
+  }
+
+  selectNode(nodeId, focus = false) {
+    if (!this.document?.nodes.some((node) => node.id === nodeId)) return;
+    if (!this.visibleNodeIds.has(nodeId)) {
+      this.callbacks.onRequestReveal?.(nodeId);
+      this.render();
     }
+    this.view.selectedId = nodeId;
+    this.scheduleRender();
+    this.callbacks.onSelect?.(nodeId);
+    if (focus) this.focusNode(nodeId);
+  }
+
+  clearSelection() {
+    this.view.selectedId = null;
+    this.view.focusIds = null;
+    this.scheduleRender();
   }
 }
