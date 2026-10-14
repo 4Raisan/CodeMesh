@@ -86,5 +86,6 @@ const withScript = inlineOrThrow(
 
 const releaseDir = resolve(root, '..', 'release');
 await mkdir(releaseDir, { recursive: true });
-await writeFile(resolve(releaseDir, 'CodeMesh.html'), withScript, 'utf8');
-process.stdout.write(`Wrote ${resolve(releaseDir, 'CodeMesh.html')}\n`);
+const license = await readFile(resolve(root, '..', 'LICENSE'), 'utf8');
+await writeFile(resolve(releaseDir, 'CodeWeb.html'), withScript.replace('<!doctype html>', '<!doctype html>\n<!--\n' + license + '\n-->'), 'utf8');
+process.stdout.write(`Wrote ${resolve(releaseDir, 'CodeWeb.html')}\n`);

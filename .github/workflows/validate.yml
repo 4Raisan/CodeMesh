@@ -1,4 +1,4 @@
-name: Validate CodeMesh
+name: Validate CodeWeb
 on:
   push:
   pull_request:
@@ -16,4 +16,4 @@ jobs:
       - run: npm --prefix app run check
       - run: npm --prefix app test
       - run: npm --prefix app run build:standalone
-      - run: git diff --exit-code -- release/CodeMesh.html
+      - run: git diff --exit-code -- release/CodeWeb.html

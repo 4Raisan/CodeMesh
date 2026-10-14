@@ -1,11 +1,35 @@
 <!doctype html>
+<!--
+MIT License
+
+Copyright (c) 2026 Rashen Anupama
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Explore your codebase as a connected map">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M47%2015%2017%2032l30%2017%22%20stroke%3D%22%23a8bbff%22%20stroke-width%3D%225%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3Ccircle%20cx%3D%2247%22%20cy%3D%2215%22%20r%3D%226%22%20fill%3D%22%23a8bbff%22%2F%3E%3Ccircle%20cx%3D%2217%22%20cy%3D%2232%22%20r%3D%226%22%20fill%3D%22%23a8bbff%22%2F%3E%3Ccircle%20cx%3D%2247%22%20cy%3D%2249%22%20r%3D%226%22%20fill%3D%22%23a8bbff%22%2F%3E%3C%2Fsvg%3E">
-  <title>CodeMesh · Codebase explorer</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M32%205v17M9%2015l17%2011M55%2015%2038%2026M9%2049l17-11M55%2049%2038%2038M32%2059V42M9%2015%209%2049%2032%2059%2055%2049V15L32%205Z%22%20stroke%3D%22%23a8bbff%22%20stroke-width%3D%222%22%20stroke-linejoin%3D%22round%22%2F%3E%3Cpath%20d%3D%22m20%2023-6%209%206%209M44%2023l6%209-6%209%22%20stroke%3D%22%23a8f0d2%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3Cpath%20d%3D%22m28%2028-5-6m13%206%205-6m-13%209-7-1m15%201%207-1m-15%205-7%205m15-5%207%205m-15-2-4%209m12-9%204%209%22%20stroke%3D%22%23a8f0d2%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%2F%3E%3Cellipse%20cx%3D%2232%22%20cy%3D%2235%22%20rx%3D%225%22%20ry%3D%227%22%20fill%3D%22%23a8f0d2%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2226%22%20r%3D%224%22%20fill%3D%22%23a8f0d2%22%2F%3E%3C%2Fsvg%3E">
+  <title>CodeWeb · Codebase explorer</title>
   <style>:root { color-scheme: dark; --bg:#0c1220; --panel:#141d2e; --raised:#1a263b; --border:#2a354b; --text:#e9eef8; --muted:#99a7be; --faint:#718099; --accent:#9aafff; --green:#70dcc0; --red:#ffa2a9; font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
 * { box-sizing:border-box; }
 html,body { margin:0; width:100%; min-width:320px; height:100%; background:var(--bg); color:var(--text); }
@@ -236,11 +260,18 @@ body.is-busy #open-folder { opacity:.6; }
 .github-support:hover {border-color:#a8bbff;color:#a8bbff;background:#1b2940;}
 .github-support:focus-visible {outline:2px solid #a8bbff;outline-offset:3px;}
 @media(max-width:800px) {.github-support {margin-left:auto;}}
+
+.statusbar .update-check {padding:6px 9px;min-height:29px;border:1px solid var(--border);border-radius:7px;color:var(--text);background:transparent;font-size:11px;white-space:nowrap;}
+.update-check:hover,.release-link:hover {color:#a8bbff;}
+.update-check:focus-visible,.release-link:focus-visible {outline:2px solid #a8bbff;outline-offset:3px;}
+.update-check:disabled {opacity:.65;cursor:wait;}
+.release-link {color:#a8f0d2;font-size:11px;}
+.release-link[hidden] {display:none;}
 </style>
 </head>
 <body>
   <header class="topbar">
-    <div class="brand-block"><span class="brand-mark" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none"><path d="M47 15 17 32l30 17" stroke="#a8bbff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="47" cy="15" r="6" fill="#a8bbff"/><circle cx="17" cy="32" r="6" fill="#a8bbff"/><circle cx="47" cy="49" r="6" fill="#a8bbff"/></svg></span><div><strong class="brand-name">CodeMesh</strong><span class="brand-subtitle">See how your code fits together.</span></div></div>
+    <div class="brand-block"><span class="brand-mark" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none"><path d="M32 5v17M9 15l17 11M55 15 38 26M9 49l17-11M55 49 38 38M32 59V42M9 15 9 49 32 59 55 49V15L32 5Z" stroke="#a8bbff" stroke-width="2" stroke-linejoin="round"/><path d="m20 23-6 9 6 9M44 23l6 9-6 9" stroke="#a8f0d2" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="m28 28-5-6m13 6 5-6m-13 9-7-1m15 1 7-1m-15 5-7 5m15-5 7 5m-15-2-4 9m12-9 4 9" stroke="#a8f0d2" stroke-width="2" stroke-linecap="round"/><ellipse cx="32" cy="35" rx="5" ry="7" fill="#a8f0d2"/><circle cx="32" cy="26" r="4" fill="#a8f0d2"/></svg></span><div><strong class="brand-name">CodeWeb</strong><span class="brand-subtitle">See how your code fits together.</span></div></div>
     <div class="search-row"><label class="sr-only" for="search-input">Search graph</label><span aria-hidden="true">⌕</span><input id="search-input" type="search" autocomplete="off" placeholder="Find a file, endpoint, or model…"><button id="search-clear" aria-label="Clear search" hidden>×</button></div>
     <nav class="topbar-actions" aria-label="Project actions">
       <details class="menu" id="open-menu"><summary>Open project <span aria-hidden="true"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m3 4.5 3 3 3-3" stroke-linecap="round" stroke-linejoin="round"/></svg></span></summary><div class="menu-items"><button id="open-folder">Project folder</button><button id="open-files">JSON file</button></div></details>
@@ -295,7 +326,7 @@ body.is-busy #open-folder { opacity:.6; }
           <details class="node-browser" id="node-browser"><summary>Nodes <span id="list-count">8</span></summary><div class="node-browser-content"><p class="muted">Select a node to see its source and connections.</p><div id="node-list" class="node-list"></div></div></details>
           <button id="inspector-launcher" class="tool-button" aria-controls="inspector-panel" aria-expanded="false" hidden>Details</button>
         </div>
-<span id="graph-status" aria-live="polite">Loading map…</span><span id="graph-stats" class="sr-only"></span><span class="local-note">Local browser processing</span><a class="github-support" href="https://github.com/4Raisan/CodeMesh" target="_blank" rel="noopener noreferrer" aria-label="Support CodeMesh: star on GitHub (opens in a new tab)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.5 4.4 1.1 6.2-5.7-3-5.7 3 1.1-6.2L3.2 9.6l6.3-.9Z" stroke-linejoin="round"/></svg>Star on GitHub</a></footer>
+<span id="graph-status" aria-live="polite">Loading map…</span><span id="graph-stats" class="sr-only"></span><span class="local-note">Local browser processing</span><button id="check-updates" class="update-check" type="button" aria-label="Check for CodeWeb updates">Check updates</button><a id="release-link" class="release-link" href="https://github.com/4Raisan/CodeWeb/releases" target="_blank" rel="noopener noreferrer" hidden>View release</a><a class="github-support" href="https://github.com/4Raisan/CodeWeb" target="_blank" rel="noopener noreferrer" aria-label="Support CodeWeb: star on GitHub (opens in a new tab)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.5 4.4 1.1 6.2-5.7-3-5.7 3 1.1-6.2L3.2 9.6l6.3-.9Z" stroke-linejoin="round"/></svg>Star on GitHub</a></footer>
   <div hidden aria-hidden="true"><button id="search-shortcut">Search</button><button id="settings-fit">Fit</button><input id="label-edges" type="checkbox"><input id="label-scale" value="100"><output id="label-scale-value"></output><input id="animation-speed" value="100"><output id="animation-speed-value"></output><input id="background-color" value="#0c1220"></div>
   <div id="project-loading" class="project-loading" role="status" aria-live="polite" hidden><span class="loading-spinner" aria-hidden="true"></span><div><strong>Opening your project</strong><p id="loading-message">Building your map…</p></div></div>
   <aside id="project-notice" class="project-notice" role="status" aria-live="polite" hidden><button id="dismiss-project-notice" aria-label="Dismiss project notice">×</button><strong id="project-notice-count"></strong><p id="project-notice-guidance"></p><small id="project-notice-time"></small></aside>
@@ -303,7 +334,7 @@ body.is-busy #open-folder { opacity:.6; }
   <input id="file-input" type="file" multiple hidden><input id="folder-input" type="file" webkitdirectory directory multiple hidden><input id="view-input" type="file" accept=".json,application/json" hidden>
   <script>
 const KGCore = (() => {
-const SCHEMA_VERSION = 'codemesh/1';
+const SCHEMA_VERSION = 'codeweb/1';
 const MAX_NODES = 10000;
 const MAX_EDGES = 30000;
 const DEFAULT_VISIBLE_NODE_LIMIT = 650;
@@ -1187,7 +1218,7 @@ function createSampleDocument() {
     schemaVersion: SCHEMA_VERSION,
     name: 'Example codebase graph',
     repository: { name: 'Example project', revision },
-    extractor: { name: 'codemesh-sample', version: '1.0.0', mode: 'sample' },
+    extractor: { name: 'codeweb-sample', version: '1.0.0', mode: 'sample' },
     coverage: { filesScanned: 8, maxInitialNodes: 650 },
     nodes,
     edges
@@ -1286,7 +1317,7 @@ function shouldIgnorePath(path) {
   if (name === '.env' || name.startsWith('.env.')) return true;
   if (name.endsWith('.min.js') || name.endsWith('.map') || name === 'package-lock.json' || name === 'yarn.lock' || name === 'pnpm-lock.yaml') return true;
   if (name === '.ds_store' || name === 'thumbs.db') return true;
-  if (name === 'kg-map.html' || name === 'kgmap.html' || name === 'codemesh.html') return true;
+  if (name === 'kg-map.html' || name === 'kgmap.html' || name === 'codeweb.html' || name === 'codemesh.html' || name === 'codeatlas.html') return true;
   return false;
 }
 
@@ -1674,7 +1705,7 @@ function createCodebaseGraph(records, options = {}) {
     name: options.name || rootName,
     repository: { name: options.name || rootName, revision },
     generatedAt: options.generatedAt ?? new Date().toISOString(),
-    extractor: { name: 'codemesh-static', version: '1.0.0', mode: 'browser-folder-drop' },
+    extractor: { name: 'codeweb-static', version: '1.0.0', mode: 'browser-folder-drop' },
     coverage: { filesDiscovered: discovered, filesScanned: normalizedRecords.length, filesSkipped: skipped, filesUnsupported: unsupported, totalBytes, partial: skipped > 0, maxInitialNodes: 650 }
   });
   if (rawRecords.length > maxFiles) builder.addDiagnostic('warning', 'file-limit', `Only the first ${maxFiles} dropped entries were inspected.`);
@@ -2819,14 +2850,14 @@ function isGraphDocument(value) {
 }
 
 function isViewDocument(value) {
-  return value !== null && typeof value === 'object' && ['codemesh-view', 'kg-map-view'].includes(value.type) && value.view && typeof value.view === 'object';
+  return value !== null && typeof value === 'object' && ['codeweb-view', 'codemesh-view', 'kg-map-view'].includes(value.type) && value.view && typeof value.view === 'object';
 }
 
 const serverProjectFileNames = new Set(['package.json', 'tsconfig.json', 'jsconfig.json', 'dockerfile', 'makefile', 'readme.md', 'license']);
 
 function isServerTextCandidate(path) {
   const name = path.split('/').pop()?.toLowerCase() ?? '';
-  if (name === 'kg-map.html' || name === 'kgmap.html' || name === 'codemesh.html') return false;
+  if (name === 'kg-map.html' || name === 'kgmap.html' || name === 'codeweb.html' || name === 'codemesh.html' || name === 'codeatlas.html') return false;
   if (serverProjectFileNames.has(name)) return true;
   return /\.(?:html?|js|jsx|mjs|cjs|ts|tsx|mts|cts|py|pyw|go|rs|java|kt|kts|cs|rb|php|swift|c|h|cc|cpp|cxx|hpp|hh|css|scss|sass|less|json|jsonc|yaml|yml|toml|xml|graphql|gql|sql|prisma|md|mdx|sh|bash|zsh|ps1|bat|cmd|vue|svelte|astro)$/i.test(name);
 }
@@ -3068,7 +3099,7 @@ function downloadBlob(content, filename, type) {
 }
 
 function localViewKey(document) {
-  return `codemesh:view:${document.fingerprint ?? fingerprintDocument(document)}`;
+  return `codeweb:view:${document.fingerprint ?? fingerprintDocument(document)}`;
 }
 
 function getLocalView(document) {
@@ -3448,8 +3479,8 @@ function applySavedView(payload, quiet = false, operation = beginDocumentOperati
 
 function saveView() {
   const payload = {
-    type: 'codemesh-view',
-    schemaVersion: 'codemesh-view/1',
+    type: 'codeweb-view',
+    schemaVersion: 'codeweb-view/1',
     fingerprint: state.document.fingerprint,
     repository: state.document.repository,
     savedAt: new Date().toISOString(),
@@ -3464,7 +3495,7 @@ function saveView() {
 }
 
 function exportFilename(kind, extension) {
-  const name = (state.document.repository?.name || 'CodeMesh').replace(/[<>:"/\\|?*\s]+/g, '-').replace(/^-+|-+$/g, '') || 'CodeMesh';
+  const name = (state.document.repository?.name || 'CodeWeb').replace(/[<>:"/\\|?*\s]+/g, '-').replace(/^-+|-+$/g, '') || 'CodeWeb';
   const now = new Date();
   const pad = value => String(value).padStart(2, '0');
   const time = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
@@ -3473,8 +3504,8 @@ function exportFilename(kind, extension) {
 
 function exportView() {
   const payload = {
-    type: 'codemesh-view',
-    schemaVersion: 'codemesh-view/1',
+    type: 'codeweb-view',
+    schemaVersion: 'codeweb-view/1',
     fingerprint: state.document.fingerprint,
     repository: state.document.repository,
     savedAt: new Date().toISOString(),
@@ -3538,7 +3569,7 @@ function handleViewFile(file, operation = beginDocumentOperation()) {
       adoptDocument(value, file.name, operation);
       return;
     }
-    throw new Error('The JSON file is not a compatible CodeMesh graph or saved view.');
+    throw new Error('The JSON file is not a compatible CodeWeb graph or saved view.');
   });
 }
 
@@ -3930,6 +3961,38 @@ function initialize() {
 }
 
 initialize();
+
+// Manual update checks never include imported project data.
+const APP_VERSION = '0.2.0';
+const updateButton = document.getElementById('check-updates');
+updateButton?.addEventListener('click', async () => {
+  const releaseLink = document.getElementById('release-link');
+  updateButton.disabled = true;
+  updateButton.textContent = 'Checking…';
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch('https://api.github.com/repos/4Raisan/CodeWeb/releases/latest', { signal: controller.signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
+    if (!response.ok) throw new Error('Release check unavailable');
+    const release = await response.json();
+    const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(release.tag_name || '');
+    if (!match) throw new Error('Unrecognized release version');
+    const latest = match.slice(1).map(Number);
+    const current = APP_VERSION.split('.').map(Number);
+    let newer = false;
+    for (let i = 0; i < 3; i++) { if (latest[i] !== current[i]) { newer = latest[i] > current[i]; break; } }
+    updateButton.textContent = newer ? 'Update available' : 'Up to date';
+    releaseLink.hidden = false;
+    showToast(newer ? `CodeWeb ${release.tag_name} is available. Open View release to download it.` : `You have CodeWeb ${APP_VERSION}. No newer stable release found.`);
+  } catch {
+    updateButton.textContent = 'Retry updates';
+    releaseLink.hidden = false;
+    showToast('Could not check updates. Open View release to check manually.', 'warning');
+  } finally {
+    window.clearTimeout(timeout);
+    updateButton.disabled = false;
+  }
+});
 
 })(KGCore.createIndexes, KGCore.createEmptyDocument, KGCore.createSampleDocument, KGCore.fingerprintDocument, KGCore.getNodeColor, KGCore.getNodeKindLabel, KGCore.getVisibleNodeIds, KGCore.normalizeGraphDocument, KGParser.shouldIgnorePath, KGParser.createCodebaseGraph, KGRenderer.GraphRenderer);
 </script>
