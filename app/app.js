@@ -269,6 +269,132 @@ function formatNumber(value) {
   return new Intl.NumberFormat().format(value ?? 0);
 }
 
+function readTextFile(file) {
+  if (typeof file.text === 'function') return file.text();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(reader.error ?? new Error('Unable to read file.'));
+    reader.readAsText(file);
+  });
+}
+
+function readDirectoryEntries(directory) {
+  return new Promise((resolve, reject) => {
+    const reader = directory.createReader();
+    const entries = [];
+    const readBatch = () => reader.readEntries((batch) => {
+      if (!batch.length) {
+        resolve(entries);
+        return;
+      }
+      entries.push(...batch);
+      readBatch();
+    }, reject);
+    readBatch();
+  });
+}
+
+async function readEntry(entry, parentPath = '') {
+  if (shouldIgnorePath(joinEntryPath(parentPath, entry.name))) return [];
+  if (entry.isFile) {
+    const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+    const path = joinEntryPath(parentPath, entry.name);
+    if ((file.size ?? 0) > 40 * 1024 * 1024) return [{ path, text: '', bytes: file.size ?? 0 }];
+    return [{ path, text: await readTextFile(file), bytes: file.size ?? 0 }];
+  }
+  if (entry.isDirectory) {
+    const path = joinEntryPath(parentPath, entry.name);
+    const children = await readDirectoryEntries(entry);
+    const records = [];
+    for (const child of children) records.push(...await readEntry(child, path));
+    return records;
+  }
+  return [];
+}
+
+async function recordsFromDataTransfer(dataTransfer) {
+  const entries = [...(dataTransfer.items ?? [])]
+    .map((item) => typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null)
+    .filter(Boolean);
+  if (entries.length > 0) {
+    const records = [];
+    for (const entry of entries) records.push(...await readEntry(entry));
+    return records;
+  }
+  const records = [];
+  for (const file of [...(dataTransfer.files ?? [])]) {
+    const path = file.webkitRelativePath || file.name;
+    if ((file.size ?? 0) > 40 * 1024 * 1024) records.push({ path, text: '', bytes: file.size ?? 0 });
+    else records.push({ path, text: await readTextFile(file), bytes: file.size ?? 0 });
+  }
+  return records;
+}
+
+async function recordsFromFileList(fileList) {
+  const records = [];
+  for (const file of [...fileList]) {
+    const path = file.webkitRelativePath || file.name;
+    if (shouldIgnorePath(path)) continue;
+    if ((file.size ?? 0) > 40 * 1024 * 1024) records.push({ path, text: '', bytes: file.size ?? 0 });
+    else records.push({ path, text: await readTextFile(file), bytes: file.size ?? 0 });
+  }
+  return records;
+}
+
+async function recordsFromDirectoryHandle(directory, parentPath = '') {
+  const records = [];
+  for await (const [name, entry] of directory.entries()) {
+    const path = joinEntryPath(parentPath, name);
+    if (shouldIgnorePath(path)) continue;
+    if (entry.kind === 'file') {
+      const file = await entry.getFile();
+      if ((file.size ?? 0) > 40 * 1024 * 1024) records.push({ path, text: '', bytes: file.size ?? 0 });
+      else records.push({ path, text: await readTextFile(file), bytes: file.size ?? 0 });
+    } else if (entry.kind === 'directory') {
+      records.push(...await recordsFromDirectoryHandle(entry, path));
+    }
+  }
+  return records;
+}
+
+async function chooseCodebaseFolder() {
+  const operation = beginDocumentOperation();
+  cancelParserJob();
+  // Open during the user gesture; explicit selection must replace auto-discovery.
+  if ('webkitdirectory' in dom.folderInput || typeof window.showDirectoryPicker !== 'function') {
+    dom.folderInput.click();
+    return;
+  }
+  try {
+    const handle = await window.showDirectoryPicker();
+    if (!isCurrentDocumentOperation(operation)) return;
+    setBusy(true, 'Reading selected codebase…');
+    try {
+      const records = await recordsFromDirectoryHandle(handle);
+      await handleRecords(records, 'selected codebase', operation);
+    } finally {
+      if (isCurrentDocumentOperation(operation)) setBusy(false);
+    }
+  } catch (error) {
+    if (error?.name === 'AbortError') return;
+    dom.folderInput.click();
+  }
+}
+
+function downloadBlob(content, filename, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = element('a');
+  link.href = url;
+  link.download = filename;
+  link.style.display = 'none';
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function localViewKey(document) {
   return `codemesh:view:${document.fingerprint ?? fingerprintDocument(document)}`;
 }
@@ -355,6 +481,36 @@ function syncView() {
   renderInspector();
 }
 
+async function processFileList(fileList, sourceLabel) {
+  const operation = beginDocumentOperation();
+  cancelParserJob();
+  setBusy(true, 'Reading dropped files…');
+  try {
+    const records = await recordsFromFileList(fileList);
+    if (!isCurrentDocumentOperation(operation)) return;
+    await handleRecords(records, sourceLabel, operation);
+  } catch (error) {
+    if (isCurrentDocumentOperation(operation)) showToast(error instanceof Error ? error.message : String(error), 'warning');
+  } finally {
+    if (isCurrentDocumentOperation(operation)) setBusy(false);
+  }
+}
+
+async function processDrop(dataTransfer) {
+  const operation = beginDocumentOperation();
+  cancelParserJob();
+  setBusy(true, 'Reading dropped files…');
+  try {
+    const records = await recordsFromDataTransfer(dataTransfer);
+    if (!isCurrentDocumentOperation(operation)) return;
+    await handleRecords(records, 'dropped selection', operation);
+  } catch (error) {
+    if (isCurrentDocumentOperation(operation)) showToast(error instanceof Error ? error.message : String(error), 'warning');
+  } finally {
+    if (isCurrentDocumentOperation(operation)) setBusy(false);
+  }
+}
+
 function setPanel(panel, open, fitView = false) {
   const changed = panel.classList.contains('is-open') !== open;
   const other = panel === dom.sidebar ? dom.inspectorPanel : dom.sidebar;
@@ -366,6 +522,34 @@ function setPanel(panel, open, fitView = false) {
   launcher.setAttribute('aria-expanded', String(open));
   dom.body.classList.toggle(panel === dom.sidebar ? 'sidebar-closed' : 'inspector-closed', !open);
   if (changed && fitView) requestAnimationFrame(() => renderer.fit());
+}
+
+function setupDropTarget() {
+  document.getElementById('dismiss-project-notice')?.addEventListener('click', () => { document.getElementById('project-notice').hidden = true; });
+  const hasFiles = (event) => [...(event.dataTransfer?.types ?? [])].includes('Files');
+  document.addEventListener('dragenter', (event) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    state.dragDepth += 1;
+    dom.dropOverlay.classList.add('is-visible');
+  });
+  document.addEventListener('dragover', (event) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  });
+  document.addEventListener('dragleave', (event) => {
+    if (!hasFiles(event)) return;
+    state.dragDepth = Math.max(0, state.dragDepth - 1);
+    if (state.dragDepth === 0) dom.dropOverlay.classList.remove('is-visible');
+  });
+  document.addEventListener('drop', (event) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    state.dragDepth = 0;
+    dom.dropOverlay.classList.remove('is-visible');
+    processDrop(event.dataTransfer);
+  });
 }
 
 function initialize() {
