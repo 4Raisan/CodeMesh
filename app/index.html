@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Explore your codebase as a connected map">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M47%2015%2017%2032l30%2017%22%20stroke%3D%22%23a8bbff%22%20stroke-width%3D%225%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3Ccircle%20cx%3D%2247%22%20cy%3D%2215%22%20r%3D%226%22%20fill%3D%22%23a8bbff%22%2F%3E%3Ccircle%20cx%3D%2217%22%20cy%3D%2232%22%20r%3D%226%22%20fill%3D%22%23a8bbff%22%2F%3E%3Ccircle%20cx%3D%2247%22%20cy%3D%2249%22%20r%3D%226%22%20fill%3D%22%23a8bbff%22%2F%3E%3C%2Fsvg%3E">
+  <title>CodeMesh · Codebase explorer</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-block"><span class="brand-mark" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none"><path d="M47 15 17 32l30 17" stroke="#a8bbff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="47" cy="15" r="6" fill="#a8bbff"/><circle cx="17" cy="32" r="6" fill="#a8bbff"/><circle cx="47" cy="49" r="6" fill="#a8bbff"/></svg></span><div><strong class="brand-name">CodeMesh</strong><span class="brand-subtitle">See how your code fits together.</span></div></div>
+    <div class="search-row"><label class="sr-only" for="search-input">Search graph</label><span aria-hidden="true">⌕</span><input id="search-input" type="search" autocomplete="off" placeholder="Find a file, endpoint, or model…"><button id="search-clear" aria-label="Clear search" hidden>×</button></div>
+    <nav class="topbar-actions" aria-label="Project actions">
+      <details class="menu" id="open-menu"><summary>Open project <span aria-hidden="true"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m3 4.5 3 3 3-3" stroke-linecap="round" stroke-linejoin="round"/></svg></span></summary><div class="menu-items"><button id="open-folder">Project folder</button><button id="open-files">JSON file</button></div></details>
+      <details class="menu" id="export-menu"><summary>Export <span aria-hidden="true"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m3 4.5 3 3 3-3" stroke-linecap="round" stroke-linejoin="round"/></svg></span></summary><div class="menu-items"><button id="export-svg">Diagram · SVG</button><button id="export-graph">Graph data · JSON</button><button id="export-view">View · JSON</button></div></details>
+    </nav>
+  </header>
+  <main class="workspace">
+    <aside id="sidebar" class="side-panel sidebar-panel is-collapsed" aria-label="View settings">
+      <div class="panel-heading"><div><span class="eyebrow">Make it yours</span><h1>View</h1></div><button id="close-sidebar" class="icon-button" aria-label="Close view settings">×</button></div>
+      <div class="panel-content">
+        <section class="settings-section"><h2>Display</h2>
+          <label class="setting-row"><span>Map detail</span><select id="overview-mode"><option value="files">Files &amp; models</option><option value="all">All relationships</option></select></label>
+          <label class="setting-row"><span>Layout</span><select id="layout-mode"><option value="layered">Architecture layers</option><option value="force">Force layout</option><option value="grid">Grouped grid</option></select></label>
+          <label class="toggle-row"><input id="motion-toggle" type="checkbox" checked><span>Animate connections</span></label>
+        </section>
+        <details class="settings-section advanced" id="appearance-settings"><summary>Spacing &amp; connections</summary>
+          <label class="setting-row"><span>Spacing <output id="spacing-value">100%</output></span><input id="layout-spacing" type="range" min="65" max="160" value="100"></label>
+          <label class="toggle-row"><input id="background-connections" type="checkbox" checked><span>Idle connections</span></label>
+          <label class="setting-row"><span>Solid opacity <output id="edge-opacity-value">38%</output></span><input id="edge-opacity" type="range" min="0" max="100" value="38"></label>
+          
+          <select id="connection-display" hidden aria-hidden="true"><option value="selected">Selected node only</option><option value="all">All connections</option></select>
+          <label class="toggle-row"><input id="show-inferred" type="checkbox" checked><span>Possible connections</span></label>
+          <label class="setting-row"><span>Dashed opacity <output id="inferred-opacity-value">55%</output></span><input id="inferred-opacity" type="range" min="0" max="100" value="55"></label>
+
+        </details>
+        <section class="settings-section"><h2>Graph theme</h2><div class="theme-buttons"><button id="theme-night" class="secondary-button">Night</button><button id="theme-slate" class="secondary-button">Slate</button><button id="theme-black" class="secondary-button">Black</button><label class="custom-theme secondary-button">Custom<input id="theme-custom" type="color" value="#0c1220" aria-label="Custom graph colour"></label></div></section>
+        <details class="settings-section advanced"><summary>Node types</summary><div id="kind-filters"></div></details>
+        <details id="settings-dock" class="settings-section advanced"><summary>Force layout settings</summary><p class="muted">Applies to Force layout. Negative repulsion pulls nodes together.</p>
+          <label class="setting-row"><span>Link distance <output id="link-distance-value">180</output></span><input id="link-distance" type="range" min="0" max="1500" step="10" value="180"></label>
+          <label class="setting-row"><span>Repulsion <output id="repulsion-value">100%</output></span><input id="repulsion" type="range" min="-1000" max="1000" step="10" value="100"></label>
+          
+          <button id="reset-layout" class="secondary-button">Reset layout</button>
+        </details>
+        <details class="settings-section advanced"><summary>More filters</summary><div id="group-filters"></div><div id="edge-filters"></div></details>
+        <div class="sidebar-actions"><button id="clear-filters" class="secondary-button">Clear filters</button><button id="reset-settings" class="secondary-button">Reset view settings</button></div>
+        <span id="filter-summary" class="muted">Showing all nodes</span><span id="diagnostics" class="diagnostics-status"></span>
+      </div>
+    </aside>
+    <section class="canvas-panel" aria-label="Graph canvas">
+      <button id="sidebar-launcher" class="tool-button canvas-settings" aria-label="View settings" title="View settings" aria-controls="sidebar" aria-expanded="false"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 7h4m4 0h8M4 17h10m4 0h2" stroke-linecap="round"/><circle cx="10" cy="7" r="2"/><circle cx="16" cy="17" r="2"/></svg></button>
+      <span id="source-hint" hidden></span><div id="graph-wrap" class="graph-wrap"><svg id="graph-svg" aria-label="Interactive codebase knowledge graph"></svg>
+        <div id="empty-state" class="empty-state" hidden><span aria-hidden="true">⌕</span><h2 id="empty-title">Open your codebase</h2><p id="empty-description">Drop this folder onto the map, or select Open project.</p><button id="empty-clear" class="secondary-button">Clear filters</button></div>
+        <div id="drop-overlay" class="drop-overlay" aria-hidden="true"><div class="drop-card"><strong>Drop your project here</strong><span id="drop-message">Source folder, files, or graph JSON</span></div></div>
+      </div>
+      <div class="canvas-bottom">
+        <div class="map-caption" id="legend-panel"><button id="legend-toggle" class="legend-handle" aria-expanded="true" aria-controls="layer-legend">Legend ▾</button><div id="layer-legend" class="layer-legend" aria-label="Architecture layers"></div><span>Drag empty canvas to pan · Scroll to zoom · Nodes are locked</span><div class="legend-line-controls"><label><input id="edge-label-mode" type="checkbox"> Connection names</label><label><input id="legend-solid" type="checkbox" checked><span class="legend-line-sample" aria-hidden="true"></span> Confirmed Connection</label><label><input id="legend-inferred" type="checkbox" checked><span class="legend-line-sample possible" aria-hidden="true"></span> Possible Connection</label></div></div>
+      </div>
+    </section>
+    <aside id="inspector-panel" class="side-panel inspector-panel is-collapsed" aria-label="Node details"><div class="panel-heading"><div><span class="eyebrow">Selected node</span><h2>Details</h2></div><button id="close-inspector" class="icon-button" aria-label="Close node details">×</button></div><div id="inspector-content"></div><button id="clear-selection" class="secondary-button clear-node">Clear selection</button></aside>
+  </main>
+  <footer class="statusbar">        <div class="canvas-toolbar" aria-label="Map controls"><button id="fit-graph" class="tool-button">Fit</button><div class="zoom-controls"><button id="zoom-out" class="tool-button" aria-label="Zoom out">−</button><button id="zoom-in" class="tool-button" aria-label="Zoom in">+</button></div>
+          <details class="node-browser" id="node-browser"><summary>Nodes <span id="list-count">8</span></summary><div class="node-browser-content"><p class="muted">Select a node to see its source and connections.</p><div id="node-list" class="node-list"></div></div></details>
+          <button id="inspector-launcher" class="tool-button" aria-controls="inspector-panel" aria-expanded="false" hidden>Details</button>
+        </div>
+<span id="graph-status" aria-live="polite">Loading map…</span><span id="graph-stats" class="sr-only"></span><span class="local-note">Local browser processing</span></footer>
+  <div hidden aria-hidden="true"><button id="search-shortcut">Search</button><button id="settings-fit">Fit</button><input id="label-edges" type="checkbox"><input id="label-scale" value="100"><output id="label-scale-value"></output><input id="animation-speed" value="100"><output id="animation-speed-value"></output><input id="background-color" value="#0c1220"></div>
+  <div id="project-loading" class="project-loading" role="status" aria-live="polite" hidden><span class="loading-spinner" aria-hidden="true"></span><div><strong>Opening your project</strong><p id="loading-message">Building your map…</p></div></div>
+  <aside id="project-notice" class="project-notice" role="status" aria-live="polite" hidden><button id="dismiss-project-notice" aria-label="Dismiss project notice">×</button><strong id="project-notice-count"></strong><p id="project-notice-guidance"></p><small id="project-notice-time"></small></aside>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <input id="file-input" type="file" multiple hidden><input id="folder-input" type="file" webkitdirectory directory multiple hidden><input id="view-input" type="file" accept=".json,application/json" hidden>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
