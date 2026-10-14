@@ -7,7 +7,7 @@ import { stripModuleSyntax } from '../scripts/standalone-guard.mjs';
 const read = (name) => readFile(fileURLToPath(new URL(`../${name}`, import.meta.url)), 'utf8');
 const [indexHtml, standaloneHtml, appSource, rendererSource, parserSource, coreSource] = await Promise.all([
   read('index.html'),
-  read('../release/CodeMesh.html'),
+  read('../release/CodeWeb.html'),
   read('app.js'),
   read('renderer.js'),
   read('codebase-parser.js'),
@@ -18,7 +18,7 @@ test('standalone HTML is self-contained and exposes the copy-anywhere flow', () 
   assert.match(standaloneHtml, /Open project/);
   assert.doesNotMatch(standaloneHtml, /<script[^>]+src=/);
   assert.doesNotMatch(standaloneHtml, /<link[^>]+stylesheet/);
-  assert.match(standaloneHtml, /CodeMesh/);
+  assert.match(standaloneHtml, /CodeWeb/);
   assert.match(standaloneHtml, /Force layout settings/);
   assert.match(standaloneHtml, /Animate connections/);
 });
@@ -97,6 +97,6 @@ test('the standalone bundle embeds the current module sources', () => {
   ];
   for (const [name, body] of expected) {
     assert.ok(body.length > 200, `fixture for ${name} looks wrong`);
-    assert.ok(standaloneHtml.includes(body), `CodeMesh.html is stale; rebuild it with "npm run build:standalone" (${name} no longer matches)`);
+    assert.ok(standaloneHtml.includes(body), `CodeWeb.html is stale; rebuild it with "npm run build:standalone" (${name} no longer matches)`);
   }
 });

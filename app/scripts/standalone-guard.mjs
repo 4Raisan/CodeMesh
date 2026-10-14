@@ -1,4 +1,4 @@
-// Shared helpers for producing and validating the self-contained CodeMesh.html build.
+// Shared helpers for producing and validating the self-contained CodeWeb.html build.
 // The import scanner is deliberately fail-closed: any import form it cannot classify
 // throws instead of being skipped, so the build can never approve a bundle that
 // leaves a reference unresolved.

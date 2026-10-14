@@ -88,7 +88,7 @@ export function shouldIgnorePath(path) {
   if (name === '.env' || name.startsWith('.env.')) return true;
   if (name.endsWith('.min.js') || name.endsWith('.map') || name === 'package-lock.json' || name === 'yarn.lock' || name === 'pnpm-lock.yaml') return true;
   if (name === '.ds_store' || name === 'thumbs.db') return true;
-  if (name === 'kg-map.html' || name === 'kgmap.html' || name === 'codemesh.html') return true;
+  if (name === 'kg-map.html' || name === 'kgmap.html' || name === 'codeweb.html' || name === 'codemesh.html' || name === 'codeatlas.html') return true;
   return false;
 }
 
@@ -476,7 +476,7 @@ export function createCodebaseGraph(records, options = {}) {
     name: options.name || rootName,
     repository: { name: options.name || rootName, revision },
     generatedAt: options.generatedAt ?? new Date().toISOString(),
-    extractor: { name: 'codemesh-static', version: '1.0.0', mode: 'browser-folder-drop' },
+    extractor: { name: 'codeweb-static', version: '1.0.0', mode: 'browser-folder-drop' },
     coverage: { filesDiscovered: discovered, filesScanned: normalizedRecords.length, filesSkipped: skipped, filesUnsupported: unsupported, totalBytes, partial: skipped > 0, maxInitialNodes: 650 }
   });
   if (rawRecords.length > maxFiles) builder.addDiagnostic('warning', 'file-limit', `Only the first ${maxFiles} dropped entries were inspected.`);

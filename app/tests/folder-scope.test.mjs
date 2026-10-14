@@ -15,7 +15,7 @@ const files = new Map([
   ['/outside.js', 'export const outside = true;']
 ]);
 const listings = new Map([
-  ['/dashboard/', ['User/', 'Customer/', 'Admin/', '../outside.js', 'CodeMesh.html']],
+  ['/dashboard/', ['User/', 'Customer/', 'Admin/', '../outside.js', 'CodeWeb.html']],
   ['/dashboard/User/', ['main.js', 'service.js', '../Customer/main.js', '../../outside.js', '/outside.js', '%2e%2e/Admin/main.js', '%2e%2e%2fAdmin/main.js', '%zz.js', '#main.js', '//evil.test/main.js', 'node_modules/']],
   ['/dashboard/Customer/', ['main.js']],
   ['/dashboard/Admin/', ['main.js']],
@@ -37,7 +37,7 @@ function harness(href, protocol = 'http:') {
   return { context, requests };
 }
 test('HTML in monolith root maps User, Customer and Admin with correct import edges', async () => {
-  const { context, requests } = harness('/dashboard/CodeMesh.html');
+  const { context, requests } = harness('/dashboard/CodeWeb.html');
   const result = await context.discover();
   assert.deepEqual(Array.from(result.records, record => record.path).sort(), ['Admin/main.js', 'Customer/main.js', 'User/main.js', 'User/service.js']);
   const graph = createCodebaseGraph(result.records, { stripCommonRoot: false });
@@ -46,18 +46,18 @@ test('HTML in monolith root maps User, Customer and Admin with correct import ed
   assert.ok(requests.every(path => path.startsWith('/dashboard/')));
 });
 test('HTML inside User never reads parents, siblings, escaped paths or generated folders', async () => {
-  const { context, requests } = harness('/dashboard/User/CodeMesh.html');
+  const { context, requests } = harness('/dashboard/User/CodeWeb.html');
   const result = await context.discover();
   assert.deepEqual(Array.from(result.records, record => record.path).sort(), ['main.js', 'service.js']);
   assert.deepEqual(requests.sort(), ['/dashboard/User/', '/dashboard/User/main.js', '/dashboard/User/service.js']);
 });
 test('missing listing stays inside placement folder and never falls back to a parent', async () => {
-  const { context, requests } = harness('/dashboard/Empty/CodeMesh.html');
+  const { context, requests } = harness('/dashboard/Empty/CodeWeb.html');
   assert.equal(await context.discover(), null);
   assert.deepEqual(requests, ['/dashboard/Empty/']);
 });
 test('local disk opening does not attempt forbidden network directory reads', async () => {
-  const { context, requests } = harness('/dashboard/User/CodeMesh.html', 'file:');
+  const { context, requests } = harness('/dashboard/User/CodeWeb.html', 'file:');
   assert.equal(await context.discover(), null);
   assert.deepEqual(requests, []);
 });

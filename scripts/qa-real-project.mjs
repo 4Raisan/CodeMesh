@@ -49,9 +49,9 @@ createServer(async (request, response) => {
   try {
     const path = decodeURIComponent(new URL(request.url, 'http://127.0.0.1').pathname);
     response.setHeader('Cache-Control', 'no-store');
-    if (path.endsWith('/CodeMesh.html')) {
+    if (path.endsWith('/CodeWeb.html')) {
       response.setHeader('Content-Type', 'text/html');
-      response.end(await readFile(resolve(root, 'release', 'CodeMesh.html')));
+      response.end(await readFile(resolve(root, 'release', 'CodeWeb.html')));
     } else if (files.has(path)) {
       response.setHeader('Content-Type', 'text/plain; charset=utf-8');
       response.end(files.get(path));
@@ -67,4 +67,4 @@ createServer(async (request, response) => {
       response.end([...children].map(child => `<a href="${escapeHtml(child)}">${escapeHtml(child)}</a>`).join('\n'));
     } else { response.statusCode = 404; response.end(); }
   } catch { response.statusCode = 500; response.end(); }
-}).listen(port, '127.0.0.1', () => console.log(`QA browser: http://127.0.0.1:${port}/CodeMesh.html`));
+}).listen(port, '127.0.0.1', () => console.log(`QA browser: http://127.0.0.1:${port}/CodeWeb.html`));

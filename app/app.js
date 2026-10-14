@@ -282,14 +282,14 @@ function isGraphDocument(value) {
 }
 
 function isViewDocument(value) {
-  return value !== null && typeof value === 'object' && ['codemesh-view', 'kg-map-view'].includes(value.type) && value.view && typeof value.view === 'object';
+  return value !== null && typeof value === 'object' && ['codeweb-view', 'codemesh-view', 'kg-map-view'].includes(value.type) && value.view && typeof value.view === 'object';
 }
 
 const serverProjectFileNames = new Set(['package.json', 'tsconfig.json', 'jsconfig.json', 'dockerfile', 'makefile', 'readme.md', 'license']);
 
 function isServerTextCandidate(path) {
   const name = path.split('/').pop()?.toLowerCase() ?? '';
-  if (name === 'kg-map.html' || name === 'kgmap.html' || name === 'codemesh.html') return false;
+  if (name === 'kg-map.html' || name === 'kgmap.html' || name === 'codeweb.html' || name === 'codemesh.html' || name === 'codeatlas.html') return false;
   if (serverProjectFileNames.has(name)) return true;
   return /\.(?:html?|js|jsx|mjs|cjs|ts|tsx|mts|cts|py|pyw|go|rs|java|kt|kts|cs|rb|php|swift|c|h|cc|cpp|cxx|hpp|hh|css|scss|sass|less|json|jsonc|yaml|yml|toml|xml|graphql|gql|sql|prisma|md|mdx|sh|bash|zsh|ps1|bat|cmd|vue|svelte|astro)$/i.test(name);
 }
@@ -531,7 +531,7 @@ function downloadBlob(content, filename, type) {
 }
 
 function localViewKey(document) {
-  return `codemesh:view:${document.fingerprint ?? fingerprintDocument(document)}`;
+  return `codeweb:view:${document.fingerprint ?? fingerprintDocument(document)}`;
 }
 
 function getLocalView(document) {
@@ -911,8 +911,8 @@ function applySavedView(payload, quiet = false, operation = beginDocumentOperati
 
 function saveView() {
   const payload = {
-    type: 'codemesh-view',
-    schemaVersion: 'codemesh-view/1',
+    type: 'codeweb-view',
+    schemaVersion: 'codeweb-view/1',
     fingerprint: state.document.fingerprint,
     repository: state.document.repository,
     savedAt: new Date().toISOString(),
@@ -927,7 +927,7 @@ function saveView() {
 }
 
 function exportFilename(kind, extension) {
-  const name = (state.document.repository?.name || 'CodeMesh').replace(/[<>:"/\\|?*\s]+/g, '-').replace(/^-+|-+$/g, '') || 'CodeMesh';
+  const name = (state.document.repository?.name || 'CodeWeb').replace(/[<>:"/\\|?*\s]+/g, '-').replace(/^-+|-+$/g, '') || 'CodeWeb';
   const now = new Date();
   const pad = value => String(value).padStart(2, '0');
   const time = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
@@ -936,8 +936,8 @@ function exportFilename(kind, extension) {
 
 function exportView() {
   const payload = {
-    type: 'codemesh-view',
-    schemaVersion: 'codemesh-view/1',
+    type: 'codeweb-view',
+    schemaVersion: 'codeweb-view/1',
     fingerprint: state.document.fingerprint,
     repository: state.document.repository,
     savedAt: new Date().toISOString(),
@@ -1001,7 +1001,7 @@ function handleViewFile(file, operation = beginDocumentOperation()) {
       adoptDocument(value, file.name, operation);
       return;
     }
-    throw new Error('The JSON file is not a compatible CodeMesh graph or saved view.');
+    throw new Error('The JSON file is not a compatible CodeWeb graph or saved view.');
   });
 }
 
@@ -1393,3 +1393,35 @@ function initialize() {
 }
 
 initialize();
+
+// Manual update checks never include imported project data.
+const APP_VERSION = '0.2.0';
+const updateButton = document.getElementById('check-updates');
+updateButton?.addEventListener('click', async () => {
+  const releaseLink = document.getElementById('release-link');
+  updateButton.disabled = true;
+  updateButton.textContent = 'Checking…';
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch('https://api.github.com/repos/4Raisan/CodeWeb/releases/latest', { signal: controller.signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
+    if (!response.ok) throw new Error('Release check unavailable');
+    const release = await response.json();
+    const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(release.tag_name || '');
+    if (!match) throw new Error('Unrecognized release version');
+    const latest = match.slice(1).map(Number);
+    const current = APP_VERSION.split('.').map(Number);
+    let newer = false;
+    for (let i = 0; i < 3; i++) { if (latest[i] !== current[i]) { newer = latest[i] > current[i]; break; } }
+    updateButton.textContent = newer ? 'Update available' : 'Up to date';
+    releaseLink.hidden = false;
+    showToast(newer ? `CodeWeb ${release.tag_name} is available. Open View release to download it.` : `You have CodeWeb ${APP_VERSION}. No newer stable release found.`);
+  } catch {
+    updateButton.textContent = 'Retry updates';
+    releaseLink.hidden = false;
+    showToast('Could not check updates. Open View release to check manually.', 'warning');
+  } finally {
+    window.clearTimeout(timeout);
+    updateButton.disabled = false;
+  }
+});

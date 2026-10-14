@@ -128,10 +128,10 @@ test('HTML entrypoints resolve root-relative assets within their package', () =>
     { path: 'frontend/package.json', text: '{}' },
     { path: 'frontend/index.html', text: '<script type="module" src="/src/main.jsx"></script>' },
     { path: 'frontend/src/main.jsx', text: 'export const app = true;' },
-    { path: 'release/CodeMesh.html', text: '<html>generated bundle</html>' }
+    { path: 'release/CodeWeb.html', text: '<html>generated bundle</html>' }
   ]);
   assert.ok(graph.edges.some(edge => edge.source === 'file:frontend/index.html' && edge.target === 'file:frontend/src/main.jsx'));
-  assert.equal(graph.nodes.some(node => node.source?.path === 'release/CodeMesh.html'), false);
+  assert.equal(graph.nodes.some(node => node.source?.path === 'release/CodeWeb.html'), false);
 });
 
 test('enforces byte limits against the real encoded size rather than the declared count', () => {

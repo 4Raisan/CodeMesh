@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 'codemesh/1';
+export const SCHEMA_VERSION = 'codeweb/1';
 export const MAX_NODES = 10000;
 export const MAX_EDGES = 30000;
 export const DEFAULT_VISIBLE_NODE_LIMIT = 650;
@@ -882,7 +882,7 @@ export function createSampleDocument() {
     schemaVersion: SCHEMA_VERSION,
     name: 'Example codebase graph',
     repository: { name: 'Example project', revision },
-    extractor: { name: 'codemesh-sample', version: '1.0.0', mode: 'sample' },
+    extractor: { name: 'codeweb-sample', version: '1.0.0', mode: 'sample' },
     coverage: { filesScanned: 8, maxInitialNodes: 650 },
     nodes,
     edges

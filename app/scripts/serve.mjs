@@ -30,8 +30,8 @@ const server = createServer(async (request, response) => {
     return;
   }
   const requestedUrl = request.url ?? '/';
-  const path = ['/CodeMesh.html', '/KG-Map.html'].includes(requestedUrl.split('?')[0])
-    ? resolve(root, '..', 'release', 'CodeMesh.html')
+  const path = ['/CodeWeb.html', '/KG-Map.html'].includes(requestedUrl.split('?')[0])
+    ? resolve(root, '..', 'release', 'CodeWeb.html')
     : safePath(requestedUrl);
   if (!path) {
     response.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
@@ -56,5 +56,5 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(port, '127.0.0.1', () => {
-  process.stdout.write(`CodeMesh is running at http://127.0.0.1:${port}/\n`);
+  process.stdout.write(`CodeWeb is running at http://127.0.0.1:${port}/\n`);
 });

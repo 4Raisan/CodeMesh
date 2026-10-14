@@ -22,5 +22,5 @@ const generated = createCodebaseGraph([{ path: 'src/app.js', text: "import './se
 assert.equal(generated.nodes.length, 2);
 assert.equal(generated.edges.length, 1);
 const normalized = normalizeGraphDocument({ nodes: [{ id: 'a', kind: 'file', label: 'A' }], edges: [] });
-assert.equal(normalized.schemaVersion, 'codemesh/1');
+assert.equal(normalized.schemaVersion, 'codeweb/1');
 process.stdout.write('PASS: static UI wiring and graph contract checks\n');

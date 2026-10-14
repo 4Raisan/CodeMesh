@@ -1,6 +1,6 @@
 {
-  "name": "codemesh",
-  "version": "0.1.0",
+  "name": "codeweb",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,5 +13,6 @@
   "description": "See how your code fits together. A portable, browser-local codebase graph explorer.",
   "engines": {
     "node": ">=22"
-  }
+  },
+  "license": "MIT"
 }
