@@ -65,39 +65,66 @@ function shouldShowEdgeLabel(mode, active) {
 }
 
 export class GraphRenderer {
-  zoomBy(factor) {
-    const size = this.getSize();
-    this.zoomAt(size.width / 2, size.height / 2, factor);
-  }
-
-  zoomAt(clientX, clientY, factor) {
-    const size = this.getSize();
-    const rect = this.svg.getBoundingClientRect();
-    const localX = ((clientX - rect.left) / Math.max(rect.width, 1)) * size.width;
-    const localY = ((clientY - rect.top) / Math.max(rect.height, 1)) * size.height;
-    const oldScale = this.view.scale;
-    const newScale = Math.max(0.12, Math.min(3, oldScale * factor));
-    const worldX = (localX - this.view.x) / oldScale;
-    const worldY = (localY - this.view.y) / oldScale;
-    this.view.scale = newScale;
-    this.view.x = localX - worldX * newScale;
-    this.view.y = localY - worldY * newScale;
-    this.applyTransform();
-    this.scheduleRender();
-    this.callbacks.onViewChange?.(this.getView());
-  }
-
-  localPoint(event) {
-    const size = this.getSize();
-    const rect = this.svg.getBoundingClientRect();
-    return {
-      x: ((event.clientX - rect.left) / Math.max(rect.width, 1)) * size.width,
-      y: ((event.clientY - rect.top) / Math.max(rect.height, 1)) * size.height
-    };
-  }
-
-  worldPoint(event) {
+  onPointerDown(event) {
+    if (event.button !== undefined && event.button !== 0) return;
+    const nodeElement = event.target.closest?.('[data-node-id]');
+    const groupElement = this.view.layoutMode === 'grid' && event.target.closest?.('[data-group-name]');
     const point = this.localPoint(event);
-    return { x: (point.x - this.view.x) / this.view.scale, y: (point.y - this.view.y) / this.view.scale };
+    if (groupElement) {
+      const name = groupElement.getAttribute('data-group-name');
+      const offset = this.view.groupOffsets?.[name] ?? { x: 0, y: 0 };
+      this.drag = { type: 'group', name, originX: offset.x, originY: offset.y, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, moved: false };
+    } else if (nodeElement) {
+      this.drag = { type: 'node', id: nodeElement.dataset.nodeId, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, moved: false, point };
+    } else {
+      this.drag = { type: 'pan', pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, originX: this.view.x, originY: this.view.y, moved: false, point };
+    }
+    this.svg.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  }
+
+  onPointerMove(event) {
+    if (!this.drag || (this.drag.pointerId !== undefined && event.pointerId !== this.drag.pointerId)) return;
+    if (this.drag.type === 'group') {
+      const dx = (event.clientX - this.drag.startX) / this.view.scale;
+      const dy = (event.clientY - this.drag.startY) / this.view.scale;
+      this.drag.moved = Math.hypot(dx, dy) > 3;
+      this.view.groupOffsets = { ...this.view.groupOffsets, [this.drag.name]: { x: this.drag.originX + dx, y: this.drag.originY + dy } };
+      this.scheduleRender();
+      event.preventDefault();
+      return;
+    } else if (this.drag.type === 'node') {
+      if (Math.hypot(event.clientX - this.drag.startX, event.clientY - this.drag.startY) > 3) this.drag.moved = true;
+      event.preventDefault();
+      return;
+    } else {
+      this.view.x = this.drag.originX + event.clientX - this.drag.startX;
+      this.view.y = this.drag.originY + event.clientY - this.drag.startY;
+      if (Math.hypot(event.clientX - this.drag.startX, event.clientY - this.drag.startY) > 3) this.drag.moved = true;
+      this.applyTransform();
+    }
+    event.preventDefault();
+  }
+
+  onPointerUp(event) {
+    if (!this.drag || (this.drag.pointerId !== undefined && event.pointerId !== this.drag.pointerId)) return;
+    const drag = this.drag;
+    this.drag = null;
+    this.svg.releasePointerCapture?.(event.pointerId);
+    if (drag.type === 'group') {
+      this.callbacks.onViewChange?.(this.getView());
+    } else if (drag.type === 'node') {
+      if (drag.moved) this.callbacks.onViewChange?.(this.getView());
+      else this.selectNode(drag.id);
+    } else if (drag.moved) {
+      this.callbacks.onViewChange?.(this.getView());
+    } else {
+      this.clearSelection();
+      this.callbacks.onEscape?.();
+    }
+  }
+
+  onPointerCancel() {
+    this.drag = null;
   }
 }
