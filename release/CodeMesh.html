@@ -231,6 +231,11 @@ body.is-busy #open-folder { opacity:.6; }
 .project-notice small {font-size:11px;color:var(--muted);}
 .project-notice button {position:absolute;right:7px;top:7px;padding:3px 7px;border:0;background:transparent;color:var(--muted);font-size:20px;}
 @media(max-width:800px) {.project-notice {top:128px;} .project-loading {top:128px;}}
+
+.github-support {display:inline-flex;align-items:center;gap:6px;padding:6px 9px;border:1px solid var(--border);border-radius:7px;color:var(--text);text-decoration:none;white-space:nowrap;font-size:11px;}
+.github-support:hover {border-color:#a8bbff;color:#a8bbff;background:#1b2940;}
+.github-support:focus-visible {outline:2px solid #a8bbff;outline-offset:3px;}
+@media(max-width:800px) {.github-support {margin-left:auto;}}
 </style>
 </head>
 <body>
@@ -290,7 +295,7 @@ body.is-busy #open-folder { opacity:.6; }
           <details class="node-browser" id="node-browser"><summary>Nodes <span id="list-count">8</span></summary><div class="node-browser-content"><p class="muted">Select a node to see its source and connections.</p><div id="node-list" class="node-list"></div></div></details>
           <button id="inspector-launcher" class="tool-button" aria-controls="inspector-panel" aria-expanded="false" hidden>Details</button>
         </div>
-<span id="graph-status" aria-live="polite">Loading map…</span><span id="graph-stats" class="sr-only"></span><span class="local-note">Local browser processing</span></footer>
+<span id="graph-status" aria-live="polite">Loading map…</span><span id="graph-stats" class="sr-only"></span><span class="local-note">Local browser processing</span><a class="github-support" href="https://github.com/4Raisan/CodeMesh" target="_blank" rel="noopener noreferrer" aria-label="Support CodeMesh: star on GitHub (opens in a new tab)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.5 4.4 1.1 6.2-5.7-3-5.7 3 1.1-6.2L3.2 9.6l6.3-.9Z" stroke-linejoin="round"/></svg>Star on GitHub</a></footer>
   <div hidden aria-hidden="true"><button id="search-shortcut">Search</button><button id="settings-fit">Fit</button><input id="label-edges" type="checkbox"><input id="label-scale" value="100"><output id="label-scale-value"></output><input id="animation-speed" value="100"><output id="animation-speed-value"></output><input id="background-color" value="#0c1220"></div>
   <div id="project-loading" class="project-loading" role="status" aria-live="polite" hidden><span class="loading-spinner" aria-hidden="true"></span><div><strong>Opening your project</strong><p id="loading-message">Building your map…</p></div></div>
   <aside id="project-notice" class="project-notice" role="status" aria-live="polite" hidden><button id="dismiss-project-notice" aria-label="Dismiss project notice">×</button><strong id="project-notice-count"></strong><p id="project-notice-guidance"></p><small id="project-notice-time"></small></aside>
