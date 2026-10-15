@@ -1395,10 +1395,11 @@ function initialize() {
 initialize();
 
 // Manual update checks never include imported project data.
-const APP_VERSION = '0.2.0';
+const APP_VERSION = '0.2.1';
 const updateButton = document.getElementById('check-updates');
 updateButton?.addEventListener('click', async () => {
   const releaseLink = document.getElementById('release-link');
+  releaseLink.hidden = true;
   updateButton.disabled = true;
   updateButton.textContent = 'Checking…';
   const controller = new AbortController();
@@ -1414,12 +1415,12 @@ updateButton?.addEventListener('click', async () => {
     let newer = false;
     for (let i = 0; i < 3; i++) { if (latest[i] !== current[i]) { newer = latest[i] > current[i]; break; } }
     updateButton.textContent = newer ? 'Update available' : 'Up to date';
-    releaseLink.hidden = false;
-    showToast(newer ? `CodeWeb ${release.tag_name} is available. Open View release to download it.` : `You have CodeWeb ${APP_VERSION}. No newer stable release found.`);
+    releaseLink.hidden = !newer;
+    showToast(newer ? `CodeWeb ${release.tag_name} is available. Choose Update to latest to download it.` : `You have CodeWeb ${APP_VERSION}. No newer stable release found.`);
   } catch {
     updateButton.textContent = 'Retry updates';
-    releaseLink.hidden = false;
-    showToast('Could not check updates. Open View release to check manually.', 'warning');
+    releaseLink.hidden = true;
+    showToast('Could not check updates. Please try again later.', 'warning');
   } finally {
     window.clearTimeout(timeout);
     updateButton.disabled = false;
