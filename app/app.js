@@ -1395,7 +1395,7 @@ function initialize() {
 initialize();
 
 // Manual update checks never include imported project data.
-const APP_VERSION = '0.2.1';
+const APP_VERSION = '0.2.2';
 const updateButton = document.getElementById('check-updates');
 updateButton?.addEventListener('click', async () => {
   const releaseLink = document.getElementById('release-link');

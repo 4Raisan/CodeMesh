@@ -16,7 +16,7 @@ async function check(tag, fail = false) {
   await click();
   return { button, link };
 }
-for (const tag of ['v0.2.1', 'v0.1.0']) test(`no update link for ${tag}`, async () => {
+for (const tag of ['v0.2.2', 'v0.1.0']) test(`no update link for ${tag}`, async () => {
   const { button, link } = await check(tag);
   assert.equal(link.hidden, true);
   assert.equal(button.textContent, 'Up to date');

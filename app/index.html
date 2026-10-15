@@ -4,13 +4,37 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Explore your codebase as a connected map">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M32%205v17M9%2015l17%2011M55%2015%2038%2026M9%2049l17-11M55%2049%2038%2038M32%2059V42M9%2015%209%2049%2032%2059%2055%2049V15L32%205Z%22%20stroke%3D%22%23a8bbff%22%20stroke-width%3D%222%22%20stroke-linejoin%3D%22round%22%2F%3E%3Cpath%20d%3D%22m20%2023-6%209%206%209M44%2023l6%209-6%209%22%20stroke%3D%22%23a8f0d2%22%20stroke-width%3D%223%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3Cpath%20d%3D%22m28%2028-5-6m13%206%205-6m-13%209-7-1m15%201%207-1m-15%205-7%205m15-5%207%205m-15-2-4%209m12-9%204%209%22%20stroke%3D%22%23a8f0d2%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%2F%3E%3Cellipse%20cx%3D%2232%22%20cy%3D%2235%22%20rx%3D%225%22%20ry%3D%227%22%20fill%3D%22%23a8f0d2%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2226%22%20r%3D%224%22%20fill%3D%22%23a8f0d2%22%2F%3E%3C%2Fsvg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20240%20240%22%20width%3D%22160%22%20height%3D%22160%22%20fill%3D%22none%22%3E%0A%20%20%3Crect%20width%3D%22240%22%20height%3D%22240%22%20rx%3D%2236%22%20fill%3D%22%23050505%22%20%2F%3E%0A%20%20%3Crect%20x%3D%222%22%20y%3D%222%22%20width%3D%22236%22%20height%3D%22236%22%20rx%3D%2234%22%20stroke%3D%22%231A1A1A%22%20stroke-width%3D%222%22%20%2F%3E%0A%20%20%3C%21--%20Outer%20White%20%27C%27%20Perimeter%20Edges%20--%3E%0A%20%20%3Cpath%20d%3D%22M%20120%2044%20L%2054%2082%20V%20158%20L%20120%20196%22%20stroke%3D%22%23FFFFFF%22%20stroke-width%3D%2216%22%20stroke-linecap%3D%22square%22%20stroke-linejoin%3D%22miter%22%20%2F%3E%0A%20%20%3C%21--%20Inner%20Phosphor%20Green%20%27W%27%20Graph%20Edges%20--%3E%0A%20%20%3Cpath%20d%3D%22M%2054%2082%20L%20120%20120%20L%20120%20196%20L%20186%20158%20V%2082%20L%20120%20120%22%20stroke%3D%22%2300FF66%22%20stroke-width%3D%2212%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20%2F%3E%0A%20%20%3C%21--%20Air-Gap%20Knockouts%20at%20Isometric%20Vertices%20--%3E%0A%20%20%3Ccircle%20cx%3D%22120%22%20cy%3D%2244%22%20r%3D%2216%22%20fill%3D%22%23050505%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%2254%22%20cy%3D%2282%22%20r%3D%2216%22%20fill%3D%22%23050505%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%22186%22%20cy%3D%2282%22%20r%3D%2216%22%20fill%3D%22%23050505%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%22120%22%20cy%3D%22120%22%20r%3D%2218%22%20fill%3D%22%23050505%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%2254%22%20cy%3D%22158%22%20r%3D%2216%22%20fill%3D%22%23050505%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%22186%22%20cy%3D%22158%22%20r%3D%2216%22%20fill%3D%22%23050505%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%22120%22%20cy%3D%22196%22%20r%3D%2216%22%20fill%3D%22%23050505%22%20%2F%3E%0A%20%20%3C%21--%20Nodes%20--%3E%0A%20%20%3Ccircle%20cx%3D%22120%22%20cy%3D%2244%22%20r%3D%229%22%20fill%3D%22%23FFFFFF%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%2254%22%20cy%3D%2282%22%20r%3D%229%22%20fill%3D%22%23FFFFFF%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%2254%22%20cy%3D%22158%22%20r%3D%229%22%20fill%3D%22%23FFFFFF%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%22120%22%20cy%3D%22196%22%20r%3D%229%22%20fill%3D%22%2300FF66%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%22186%22%20cy%3D%2282%22%20r%3D%229%22%20fill%3D%22%2300FF66%22%20%2F%3E%0A%20%20%3Ccircle%20cx%3D%22186%22%20cy%3D%22158%22%20r%3D%229%22%20fill%3D%22%2300FF66%22%20%2F%3E%0A%20%20%3C%21--%20Center%20Hub%20--%3E%0A%20%20%3Ccircle%20cx%3D%22120%22%20cy%3D%22120%22%20r%3D%229%22%20fill%3D%22%23050505%22%20stroke%3D%22%2300FF66%22%20stroke-width%3D%226%22%20%2F%3E%0A%3C%2Fsvg%3E">
   <title>CodeWeb · Codebase explorer</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <header class="topbar">
-    <div class="brand-block"><span class="brand-mark" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none"><path d="M32 5v17M9 15l17 11M55 15 38 26M9 49l17-11M55 49 38 38M32 59V42M9 15 9 49 32 59 55 49V15L32 5Z" stroke="#a8bbff" stroke-width="2" stroke-linejoin="round"/><path d="m20 23-6 9 6 9M44 23l6 9-6 9" stroke="#a8f0d2" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="m28 28-5-6m13 6 5-6m-13 9-7-1m15 1 7-1m-15 5-7 5m15-5 7 5m-15-2-4 9m12-9 4 9" stroke="#a8f0d2" stroke-width="2" stroke-linecap="round"/><ellipse cx="32" cy="35" rx="5" ry="7" fill="#a8f0d2"/><circle cx="32" cy="26" r="4" fill="#a8f0d2"/></svg></span><div><strong class="brand-name">CodeWeb</strong><span class="brand-subtitle">See how your code fits together.</span></div></div>
+    <div class="brand-block"><span class="brand-mark" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="160" height="160" fill="none">
+  <rect width="240" height="240" rx="36" fill="#050505" />
+  <rect x="2" y="2" width="236" height="236" rx="34" stroke="#1A1A1A" stroke-width="2" />
+  <!-- Outer White 'C' Perimeter Edges -->
+  <path d="M 120 44 L 54 82 V 158 L 120 196" stroke="#FFFFFF" stroke-width="16" stroke-linecap="square" stroke-linejoin="miter" />
+  <!-- Inner Phosphor Green 'W' Graph Edges -->
+  <path d="M 54 82 L 120 120 L 120 196 L 186 158 V 82 L 120 120" stroke="#00FF66" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" />
+  <!-- Air-Gap Knockouts at Isometric Vertices -->
+  <circle cx="120" cy="44" r="16" fill="#050505" />
+  <circle cx="54" cy="82" r="16" fill="#050505" />
+  <circle cx="186" cy="82" r="16" fill="#050505" />
+  <circle cx="120" cy="120" r="18" fill="#050505" />
+  <circle cx="54" cy="158" r="16" fill="#050505" />
+  <circle cx="186" cy="158" r="16" fill="#050505" />
+  <circle cx="120" cy="196" r="16" fill="#050505" />
+  <!-- Nodes -->
+  <circle cx="120" cy="44" r="9" fill="#FFFFFF" />
+  <circle cx="54" cy="82" r="9" fill="#FFFFFF" />
+  <circle cx="54" cy="158" r="9" fill="#FFFFFF" />
+  <circle cx="120" cy="196" r="9" fill="#00FF66" />
+  <circle cx="186" cy="82" r="9" fill="#00FF66" />
+  <circle cx="186" cy="158" r="9" fill="#00FF66" />
+  <!-- Center Hub -->
+  <circle cx="120" cy="120" r="9" fill="#050505" stroke="#00FF66" stroke-width="6" />
+</svg></span><div><strong class="brand-name">CodeWeb</strong><span class="brand-subtitle">See how your code fits together.</span></div></div>
     <div class="search-row"><label class="sr-only" for="search-input">Search graph</label><span aria-hidden="true">⌕</span><input id="search-input" type="search" autocomplete="off" placeholder="Find a file, endpoint, or model…"><button id="search-clear" aria-label="Clear search" hidden>×</button></div>
     <nav class="topbar-actions" aria-label="Project actions">
       <details class="menu" id="open-menu"><summary>Open project <span aria-hidden="true"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m3 4.5 3 3 3-3" stroke-linecap="round" stroke-linejoin="round"/></svg></span></summary><div class="menu-items"><button id="open-folder">Project folder</button><button id="open-files">JSON file</button></div></details>

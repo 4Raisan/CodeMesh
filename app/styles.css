@@ -235,3 +235,7 @@ body.is-busy #open-folder { opacity:.6; }
 .update-check:disabled {opacity:.65;cursor:wait;}
 .release-link {color:#a8f0d2;font-size:11px;}
 .release-link[hidden] {display:none;}
+
+.brand-mark {border:0;background:transparent;}
+.brand-mark > svg {width:100%;height:100%;}
+@media(max-width:450px) {.brand-mark > svg {width:100%;height:100%;}}
