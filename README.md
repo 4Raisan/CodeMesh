@@ -18,7 +18,7 @@ One HTML file. No installation. Local folder access requires your selection or d
 - Use **Show neighbors** and node-type filters to focus the map.
 - Choose Architecture layers, Grid, or Force; adjust spacing, themes, and connections.
 - Export **SVG** for a diagram, **graph JSON** for the extracted data, or **view JSON** for settings to restore against the matching graph.
-- Use **Check updates** beside **Star on GitHub** to check the latest release. This contacts GitHub only when clicked and sends no project data.
+- The update dot beside **Star on GitHub** checks GitHub on launch: green means current, gray means unavailable/offline, and glowing red with **Get latest** means an update exists. Click the dot to recheck. No project data is sent.
 
 ![Application architecture](docs/assets/codeweb-architecture.svg)
 
@@ -26,7 +26,7 @@ One HTML file. No installation. Local folder access requires your selection or d
 
 Aim for **up to 300 visible nodes** for everyday use. For 300–1,000, prefer Layers and filters; above 1,000, explore neighborhoods. This is guidance, not a cap or performance guarantee. Large Force layouts can be slow and Grid can overlap.
 
-Static extraction can miss dynamic relationships or framework routes. Imports outside the chosen folder remain unresolved. Extraction limits: **5,000 files · 2 MB per file · 40 MB total**. See [validation notes](docs/QA.md).
+Static extraction can miss dynamic relationships or framework routes. Imports outside the chosen folder remain unresolved. Extraction limits: **5,000 files · 2 MB per file · 40 MB total**. See [validation notes](docs/QA.md) and [measured performance comparisons](docs/PERFORMANCE.md).
 
 ## Development
 

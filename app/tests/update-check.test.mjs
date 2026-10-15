@@ -2,10 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
-const source = (await readFile(new URL('../app.js', import.meta.url), 'utf8')).split('// Manual update checks never include imported project data.')[1];
+const source = (await readFile(new URL('../app.js', import.meta.url), 'utf8')).split('// Release checks never include imported project data.')[1];
 async function check(tag, fail = false) {
   let click;
-  const button = { addEventListener: (_name, handler) => { click = handler; } };
+  const button = { dataset: {}, setAttribute: () => {}, addEventListener: (_name, handler) => { click = handler; } };
   const link = { hidden: false };
   vm.runInNewContext(source, {
     document: { getElementById: id => id === 'check-updates' ? button : link },
@@ -16,18 +16,20 @@ async function check(tag, fail = false) {
   await click();
   return { button, link };
 }
-for (const tag of ['v0.2.2', 'v0.1.0']) test(`no update link for ${tag}`, async () => {
+for (const tag of ['v0.2.3', 'v0.1.0']) test(`no update link for ${tag}`, async () => {
   const { button, link } = await check(tag);
   assert.equal(link.hidden, true);
-  assert.equal(button.textContent, 'Up to date');
+  assert.equal(button.dataset.state, 'current');
 });
 test('newer release exposes the update action', async () => {
   const { link, button } = await check('v0.3.0');
   assert.equal(link.hidden, false);
   assert.equal(button.disabled, false);
+  assert.equal(button.dataset.state, 'available');
 });
 test('failed checks clear a previously visible update action', async () => {
-  const { link } = await check('', true);
+  const { link, button } = await check('', true);
+  assert.equal(button.dataset.state, 'unknown');
   assert.equal(link.hidden, true);
 });
 test('invalid versions do not expose an update action', async () => {

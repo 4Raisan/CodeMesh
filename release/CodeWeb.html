@@ -271,6 +271,14 @@ body.is-busy #open-folder { opacity:.6; }
 .brand-mark {border:0;background:transparent;}
 .brand-mark > svg {width:100%;height:100%;}
 @media(max-width:450px) {.brand-mark > svg {width:100%;height:100%;}}
+
+.statusbar .update-check {display:inline-grid;place-items:center;width:30px;height:30px;padding:6px;border:0;background:transparent;}
+.update-dot {width:10px;height:10px;border-radius:50%;background:#7d899b;display:block;}
+.update-check[data-state="current"] .update-dot {background:#70df92;}
+.update-check[data-state="available"] .update-dot {background:#ff6b76;box-shadow:0 0 5px #ff6b76,0 0 12px #ff6b7699;animation:update-glow 1.8s ease-in-out infinite;}
+.release-link {color:#ff8790;text-decoration:none;font-weight:600;}
+.github-support svg {color:#f5c451;fill:#f5c451;}
+@keyframes update-glow {50% {box-shadow:0 0 8px #ff6b76,0 0 18px #ff6b76aa;}}
 </style>
 </head>
 <body>
@@ -354,7 +362,7 @@ body.is-busy #open-folder { opacity:.6; }
           <details class="node-browser" id="node-browser"><summary>Nodes <span id="list-count">8</span></summary><div class="node-browser-content"><p class="muted">Select a node to see its source and connections.</p><div id="node-list" class="node-list"></div></div></details>
           <button id="inspector-launcher" class="tool-button" aria-controls="inspector-panel" aria-expanded="false" hidden>Details</button>
         </div>
-<span id="graph-status" aria-live="polite">Loading map…</span><span id="graph-stats" class="sr-only"></span><span class="local-note">Local browser processing</span><button id="check-updates" class="update-check" type="button" aria-label="Check for CodeWeb updates">Check updates</button><a id="release-link" class="release-link" href="https://github.com/4Raisan/CodeWeb/releases" target="_blank" rel="noopener noreferrer" hidden>Update to latest</a><a class="github-support" href="https://github.com/4Raisan/CodeWeb" target="_blank" rel="noopener noreferrer" aria-label="Support CodeWeb: star on GitHub (opens in a new tab)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.5 4.4 1.1 6.2-5.7-3-5.7 3 1.1-6.2L3.2 9.6l6.3-.9Z" stroke-linejoin="round"/></svg>Star on GitHub</a></footer>
+<span id="graph-status" aria-live="polite">Loading map…</span><span id="graph-stats" class="sr-only"></span><span class="local-note">Local browser processing</span><button id="check-updates" class="update-check" type="button" data-state="unknown" title="Checking for updates" aria-label="Check for CodeWeb updates"><span class="update-dot" aria-hidden="true"></span></button><a id="release-link" class="release-link" href="https://github.com/4Raisan/CodeWeb/releases" target="_blank" rel="noopener noreferrer" hidden>Get latest</a><a class="github-support" href="https://github.com/4Raisan/CodeWeb" target="_blank" rel="noopener noreferrer" aria-label="Support CodeWeb: star on GitHub (opens in a new tab)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.5 4.4 1.1 6.2-5.7-3-5.7 3 1.1-6.2L3.2 9.6l6.3-.9Z" stroke-linejoin="round"/></svg>Star on GitHub</a></footer>
   <div hidden aria-hidden="true"><button id="search-shortcut">Search</button><button id="settings-fit">Fit</button><input id="label-edges" type="checkbox"><input id="label-scale" value="100"><output id="label-scale-value"></output><input id="animation-speed" value="100"><output id="animation-speed-value"></output><input id="background-color" value="#0c1220"></div>
   <div id="project-loading" class="project-loading" role="status" aria-live="polite" hidden><span class="loading-spinner" aria-hidden="true"></span><div><strong>Opening your project</strong><p id="loading-message">Building your map…</p></div></div>
   <aside id="project-notice" class="project-notice" role="status" aria-live="polite" hidden><button id="dismiss-project-notice" aria-label="Dismiss project notice">×</button><strong id="project-notice-count"></strong><p id="project-notice-guidance"></p><small id="project-notice-time"></small></aside>
@@ -3476,13 +3484,17 @@ function adoptDocument(input, sourceLabel, operation = beginDocumentOperation())
   setPanel(dom.inspectorPanel, false);
   renderer.setDocument(normalized);
   syncView();
-  requestAnimationFrame(() => renderer.fit());
+  requestAnimationFrame(() => {
+    if (!isCurrentDocumentOperation(operation)) return;
+    renderer.fit();
+    setText(document.getElementById('project-notice-time'), `Loaded in ${((Date.now() - importStartedAt) / 1000).toFixed(1)} s · device-dependent`);
+  });
   updateStatus({ visibleNodes: normalized.nodes.length, totalNodes: normalized.nodes.length, visibleEdges: normalized.edges.length, totalEdges: normalized.edges.length, truncated: false });
   const count = normalized.nodes.length;
   const guidance = count <= 300 ? 'Within the recommended everyday viewing range.' : count <= 1000 ? 'For a smoother view, keep Architecture layers and use filters or Show neighbors.' : 'Large map: explore smaller neighborhoods. Force layout may be slow.';
   setText(document.getElementById('project-notice-count'), `${formatNumber(count)} nodes · ${formatNumber(normalized.edges.length)} connections`);
   setText(document.getElementById('project-notice-guidance'), guidance + (normalized.coverage.partial ? ' Partial coverage: some files were skipped.' : ''));
-  setText(document.getElementById('project-notice-time'), `Imported and arranged in ${((Date.now() - importStartedAt) / 1000).toFixed(1)} s · device-dependent`);
+  setText(document.getElementById('project-notice-time'), `Preparing map…`);
   const notice = document.getElementById('project-notice');
   if (notice) notice.hidden = false;
   window.clearTimeout(projectNoticeTimer);
@@ -3990,18 +4002,24 @@ function initialize() {
 
 initialize();
 
-// Manual update checks never include imported project data.
-const APP_VERSION = '0.2.2';
+// Release checks never include imported project data.
+const APP_VERSION = '0.2.3';
 const updateButton = document.getElementById('check-updates');
-updateButton?.addEventListener('click', async () => {
+async function checkForUpdates() {
+  if (!updateButton || updateButton.disabled) return;
   const releaseLink = document.getElementById('release-link');
+  const status = (value, message) => {
+    updateButton.dataset.state = value;
+    updateButton.title = message;
+    updateButton.setAttribute('aria-label', message + '. Click to check again.');
+  };
   releaseLink.hidden = true;
   updateButton.disabled = true;
-  updateButton.textContent = 'Checking…';
+  status('unknown', 'Checking for updates');
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 10000);
   try {
-    const response = await fetch('https://api.github.com/repos/4Raisan/CodeWeb/releases/latest', { signal: controller.signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
+    const response = await fetch('https://api.github.com/repos/4Raisan/CodeWeb/releases/latest', { signal: controller.signal, credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store' });
     if (!response.ok) throw new Error('Release check unavailable');
     const release = await response.json();
     const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(release.tag_name || '');
@@ -4010,18 +4028,18 @@ updateButton?.addEventListener('click', async () => {
     const current = APP_VERSION.split('.').map(Number);
     let newer = false;
     for (let i = 0; i < 3; i++) { if (latest[i] !== current[i]) { newer = latest[i] > current[i]; break; } }
-    updateButton.textContent = newer ? 'Update available' : 'Up to date';
+    status(newer ? 'available' : 'current', newer ? `CodeWeb ${release.tag_name} is available` : `CodeWeb ${APP_VERSION} is up to date`);
     releaseLink.hidden = !newer;
-    showToast(newer ? `CodeWeb ${release.tag_name} is available. Choose Update to latest to download it.` : `You have CodeWeb ${APP_VERSION}. No newer stable release found.`);
   } catch {
-    updateButton.textContent = 'Retry updates';
+    status('unknown', 'Offline or update check unavailable');
     releaseLink.hidden = true;
-    showToast('Could not check updates. Please try again later.', 'warning');
   } finally {
     window.clearTimeout(timeout);
     updateButton.disabled = false;
   }
-});
+}
+updateButton?.addEventListener('click', checkForUpdates);
+window.setTimeout(() => { void checkForUpdates(); }, 0);
 
 })(KGCore.createIndexes, KGCore.createEmptyDocument, KGCore.createSampleDocument, KGCore.fingerprintDocument, KGCore.getNodeColor, KGCore.getNodeKindLabel, KGCore.getVisibleNodeIds, KGCore.normalizeGraphDocument, KGParser.shouldIgnorePath, KGParser.createCodebaseGraph, KGRenderer.GraphRenderer);
 </script>

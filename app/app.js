@@ -880,13 +880,17 @@ function adoptDocument(input, sourceLabel, operation = beginDocumentOperation())
   setPanel(dom.inspectorPanel, false);
   renderer.setDocument(normalized);
   syncView();
-  requestAnimationFrame(() => renderer.fit());
+  requestAnimationFrame(() => {
+    if (!isCurrentDocumentOperation(operation)) return;
+    renderer.fit();
+    setText(document.getElementById('project-notice-time'), `Loaded in ${((Date.now() - importStartedAt) / 1000).toFixed(1)} s · device-dependent`);
+  });
   updateStatus({ visibleNodes: normalized.nodes.length, totalNodes: normalized.nodes.length, visibleEdges: normalized.edges.length, totalEdges: normalized.edges.length, truncated: false });
   const count = normalized.nodes.length;
   const guidance = count <= 300 ? 'Within the recommended everyday viewing range.' : count <= 1000 ? 'For a smoother view, keep Architecture layers and use filters or Show neighbors.' : 'Large map: explore smaller neighborhoods. Force layout may be slow.';
   setText(document.getElementById('project-notice-count'), `${formatNumber(count)} nodes · ${formatNumber(normalized.edges.length)} connections`);
   setText(document.getElementById('project-notice-guidance'), guidance + (normalized.coverage.partial ? ' Partial coverage: some files were skipped.' : ''));
-  setText(document.getElementById('project-notice-time'), `Imported and arranged in ${((Date.now() - importStartedAt) / 1000).toFixed(1)} s · device-dependent`);
+  setText(document.getElementById('project-notice-time'), `Preparing map…`);
   const notice = document.getElementById('project-notice');
   if (notice) notice.hidden = false;
   window.clearTimeout(projectNoticeTimer);
@@ -1394,18 +1398,24 @@ function initialize() {
 
 initialize();
 
-// Manual update checks never include imported project data.
-const APP_VERSION = '0.2.2';
+// Release checks never include imported project data.
+const APP_VERSION = '0.2.3';
 const updateButton = document.getElementById('check-updates');
-updateButton?.addEventListener('click', async () => {
+async function checkForUpdates() {
+  if (!updateButton || updateButton.disabled) return;
   const releaseLink = document.getElementById('release-link');
+  const status = (value, message) => {
+    updateButton.dataset.state = value;
+    updateButton.title = message;
+    updateButton.setAttribute('aria-label', message + '. Click to check again.');
+  };
   releaseLink.hidden = true;
   updateButton.disabled = true;
-  updateButton.textContent = 'Checking…';
+  status('unknown', 'Checking for updates');
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 10000);
   try {
-    const response = await fetch('https://api.github.com/repos/4Raisan/CodeWeb/releases/latest', { signal: controller.signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
+    const response = await fetch('https://api.github.com/repos/4Raisan/CodeWeb/releases/latest', { signal: controller.signal, credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store' });
     if (!response.ok) throw new Error('Release check unavailable');
     const release = await response.json();
     const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(release.tag_name || '');
@@ -1414,15 +1424,15 @@ updateButton?.addEventListener('click', async () => {
     const current = APP_VERSION.split('.').map(Number);
     let newer = false;
     for (let i = 0; i < 3; i++) { if (latest[i] !== current[i]) { newer = latest[i] > current[i]; break; } }
-    updateButton.textContent = newer ? 'Update available' : 'Up to date';
+    status(newer ? 'available' : 'current', newer ? `CodeWeb ${release.tag_name} is available` : `CodeWeb ${APP_VERSION} is up to date`);
     releaseLink.hidden = !newer;
-    showToast(newer ? `CodeWeb ${release.tag_name} is available. Choose Update to latest to download it.` : `You have CodeWeb ${APP_VERSION}. No newer stable release found.`);
   } catch {
-    updateButton.textContent = 'Retry updates';
+    status('unknown', 'Offline or update check unavailable');
     releaseLink.hidden = true;
-    showToast('Could not check updates. Please try again later.', 'warning');
   } finally {
     window.clearTimeout(timeout);
     updateButton.disabled = false;
   }
-});
+}
+updateButton?.addEventListener('click', checkForUpdates);
+window.setTimeout(() => { void checkForUpdates(); }, 0);
